@@ -1,513 +1,530 @@
 --[[
-    ╔══════════════════════════════════════╗
-              LIGHT HOP PRO
-       Server Browser / Server Hop
-    ╚══════════════════════════════════════╝
-
-    DESIGN:
-    - Interface inspirada na referência enviada
-    - Botão LH maior
-    - Painel moderno
-    - Filtros
-    - Server cards
-    - Auto Hop
-    - Ping / FPS
+    LIGHT HOP PRO
+    ReconstruÃ§Ã£o profissional do "Light Hop"
+    - Arquitetura modular por namespaces (script Ãºnico)
+    - Estado centralizado, cleanup via Maid, UI responsiva
+    - Auto Hop real (loop, cooldown, retry controlado)
 ]]
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
 
---// SERVICES
-local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
-local HttpService = game:GetService("HttpService")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+--====================================================
+-- SERVICES
+--====================================================
+local Players           = game:GetService("Players")
+local TeleportService    = game:GetService("TeleportService")
+local HttpService        = game:GetService("HttpService")
+local UserInputService   = game:GetService("UserInputService")
+local TweenService       = game:GetService("TweenService")
+local RunService         = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
-
 while not LocalPlayer do
     task.wait()
     LocalPlayer = Players.LocalPlayer
 end
 
 local PlaceId = game.PlaceId
-local JobId = game.JobId
+local JobId   = game.JobId
 
---// CONFIG
-local MAX_SERVERS = 50
-local REQUEST_DELAY = 0.4
-
--- ÍCONE DO BOTÃO LH
-local ICON_ASSET_ID = ""
-
-local ICON_URL =
-    "https://raw.githubusercontent.com/sala192828817-dev/LightHop/main/foto.png"
-
---// THEME
-local THEME = {
-    Background = Color3.fromRGB(14, 14, 18),
-    Panel = Color3.fromRGB(18, 18, 23),
-    Card = Color3.fromRGB(29, 29, 35),
-    CardHover = Color3.fromRGB(36, 36, 43),
-
-    Accent = Color3.fromRGB(255, 190, 40),
-    AccentHover = Color3.fromRGB(255, 207, 65),
-
-    AccentDark = Color3.fromRGB(125, 91, 22),
-
-    Text = Color3.fromRGB(245, 245, 245),
-    TextDim = Color3.fromRGB(165, 165, 175),
-
-    Border = Color3.fromRGB(58, 58, 66),
-
-    GoodPing = Color3.fromRGB(70, 220, 120),
-    MediumPing = Color3.fromRGB(255, 190, 40),
-    BadPing = Color3.fromRGB(235, 80, 80),
-
-    Green = Color3.fromRGB(65, 220, 120),
-    Red = Color3.fromRGB(230, 85, 85),
-
-    Black = Color3.fromRGB(10, 10, 12)
+--====================================================
+-- CONFIG
+--====================================================
+local Config = {
+    MaxServers      = 50,
+    RequestDelay    = 0.35,
+    AutoHopCooldown = 6,      -- segundos mÃ­nimos entre tentativas de hop
+    MaxVisitedMemo  = 40,     -- quantos JobIds evitar reentrar
+    IconAssetId     = "",     -- rbxassetid://... (opcional)
+    IconUrl         = "https://raw.githubusercontent.com/sala192828817-dev/LightHop/main/foto.png",
+    BaseUrls        = { "https://games.roblox.com", "https://games.roproxy.com" },
 }
 
---// GUI PARENT
-local function getGuiParent()
-    local okHui, hui = pcall(function()
-        if gethui then
-            return gethui()
+--====================================================
+-- THEME
+--====================================================
+local Theme = {
+    Background   = Color3.fromRGB(16, 16, 20),
+    Surface      = Color3.fromRGB(24, 24, 29),
+    SurfaceAlt   = Color3.fromRGB(30, 30, 36),
+    Border       = Color3.fromRGB(48, 48, 56),
+    Accent       = Color3.fromRGB(255, 191, 43),
+    AccentHover  = Color3.fromRGB(255, 209, 84),
+    AccentDim    = Color3.fromRGB(90, 74, 30),
+    Text         = Color3.fromRGB(245, 245, 248),
+    TextDim      = Color3.fromRGB(160, 160, 170),
+    Good         = Color3.fromRGB(88, 214, 130),
+    Medium       = Color3.fromRGB(255, 191, 43),
+    Bad          = Color3.fromRGB(235, 90, 90),
+    Danger       = Color3.fromRGB(220, 90, 90),
+    Font         = Enum.Font.GothamMedium,
+    FontBold     = Enum.Font.GothamBold,
+}
+
+--====================================================
+-- MAID (cleanup / lifecycle)
+--====================================================
+local Maid = {}
+Maid.__index = Maid
+
+function Maid.new()
+    return setmetatable({ _tasks = {} }, Maid)
+end
+
+function Maid:Add(task_)
+    table.insert(self._tasks, task_)
+    return task_
+end
+
+function Maid:Cleanup()
+    for i = #self._tasks, 1, -1 do
+        local t = self._tasks[i]
+        self._tasks[i] = nil
+        if typeof(t) == "RBXScriptConnection" then
+            t:Disconnect()
+        elseif typeof(t) == "Instance" then
+            t:Destroy()
+        elseif type(t) == "function" then
+            pcall(t)
+        elseif type(t) == "thread" then
+            pcall(task.cancel, t)
         end
-    end)
-
-    if okHui and hui then
-        return hui
     end
+end
 
-    local okCore = pcall(function()
-        game:GetService("CoreGui"):GetChildren()
-    end)
+-- Se o script jÃ¡ rodou antes nesta sessÃ£o, limpa a instÃ¢ncia anterior antes de recomeÃ§ar
+local existingGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("LightHopPro")
+if existingGui then
+    existingGui:Destroy()
+end
+if _G.__LightHopCleanup then
+    pcall(_G.__LightHopCleanup)
+end
 
-    if okCore then
-        return game:GetService("CoreGui")
+local GlobalMaid = Maid.new()
+_G.__LightHopCleanup = function()
+    GlobalMaid:Cleanup()
+end
+
+--====================================================
+-- STATE (fonte Ãºnica de verdade)
+--====================================================
+local State = {
+    _data = {
+        sort         = "ping",   -- ping | low | high
+        servers      = {},
+        loading      = false,
+        panelOpen    = true,
+        autoHopOn    = false,
+        autoHopMode  = "ping",   -- ping | low
+        statusText   = "Pronto",
+        errorText    = nil,
+    },
+    _listeners = {},
+}
+
+function State:Get(key)
+    return self._data[key]
+end
+
+function State:Set(key, value)
+    if self._data[key] == value then return end
+    self._data[key] = value
+    local list = self._listeners[key]
+    if list then
+        for _, fn in ipairs(list) do
+            task.spawn(fn, value)
+        end
     end
+end
 
+function State:OnChange(key, fn)
+    self._listeners[key] = self._listeners[key] or {}
+    table.insert(self._listeners[key], fn)
+end
+
+--====================================================
+-- GUI ROOT
+--====================================================
+local function getGuiParent()
+    local ok, hui = pcall(function()
+        return (gethui and gethui()) or nil
+    end)
+    if ok and hui then return hui end
     return LocalPlayer:WaitForChild("PlayerGui")
 end
 
---// SCREEN GUI
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LightHopPro"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = getGuiParent()
+GlobalMaid:Add(ScreenGui)
 
---========================================================
---// TOGGLE BUTTON
---========================================================
+--====================================================
+-- UTIL
+--====================================================
+local Util = {}
 
+function Util.Round(instance, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 10)
+    c.Parent = instance
+    return c
+end
+
+function Util.Stroke(instance, color, thickness)
+    local s = Instance.new("UIStroke")
+    s.Color = color or Theme.Border
+    s.Thickness = thickness or 1
+    s.Parent = instance
+    return s
+end
+
+function Util.Tween(instance, props, duration, style)
+    local tw = TweenService:Create(
+        instance,
+        TweenInfo.new(duration or 0.18, style or Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        props
+    )
+    tw:Play()
+    return tw
+end
+
+function Util.PingColor(ping)
+    if ping <= 80 then return Theme.Good
+    elseif ping <= 150 then return Theme.Medium
+    else return Theme.Bad end
+end
+
+--====================================================
+-- NOTIFY (toasts)
+--====================================================
+local Notify = {}
+do
+    local NotifyHolder = Instance.new("Frame")
+    NotifyHolder.Name = "Notifications"
+    NotifyHolder.AnchorPoint = Vector2.new(0.5, 0)
+    NotifyHolder.Position = UDim2.new(0.5, 0, 0, 12)
+    NotifyHolder.Size = UDim2.new(0, 320, 0, 0)
+    NotifyHolder.BackgroundTransparency = 1
+    NotifyHolder.Parent = ScreenGui
+
+    local layout = Instance.new("UIListLayout")
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.Padding = UDim.new(0, 6)
+    layout.Parent = NotifyHolder
+
+    function Notify.Show(text, kind, duration)
+        duration = duration or 3
+        local color = kind == "error" and Theme.Danger or (kind == "success" and Theme.Good or Theme.Accent)
+
+        local toast = Instance.new("Frame")
+        toast.Size = UDim2.new(1, 0, 0, 0)
+        toast.AutomaticSize = Enum.AutomaticSize.Y
+        toast.BackgroundColor3 = Theme.Surface
+        toast.BackgroundTransparency = 0
+        toast.Parent = NotifyHolder
+        Util.Round(toast, 8)
+        Util.Stroke(toast, color, 1)
+
+        local pad = Instance.new("UIPadding")
+        pad.PaddingTop = UDim.new(0, 8)
+        pad.PaddingBottom = UDim.new(0, 8)
+        pad.PaddingLeft = UDim.new(0, 12)
+        pad.PaddingRight = UDim.new(0, 12)
+        pad.Parent = toast
+
+        local label = Instance.new("TextLabel")
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.new(1, 0, 0, 0)
+        label.AutomaticSize = Enum.AutomaticSize.Y
+        label.Font = Theme.Font
+        label.TextSize = 13
+        label.TextWrapped = true
+        label.TextColor3 = Theme.Text
+        label.Text = text
+        label.Parent = toast
+
+        toast.BackgroundTransparency = 1
+        label.TextTransparency = 1
+        Util.Tween(toast, { BackgroundTransparency = 0 }, 0.15)
+        Util.Tween(label, { TextTransparency = 0 }, 0.15)
+
+        task.delay(duration, function()
+            if toast and toast.Parent then
+                Util.Tween(toast, { BackgroundTransparency = 1 }, 0.2)
+                Util.Tween(label, { TextTransparency = 1 }, 0.2)
+                task.delay(0.22, function()
+                    if toast then toast:Destroy() end
+                end)
+            end
+        end)
+    end
+end
+
+--====================================================
+-- UI BUILD
+--====================================================
+local UI = {}
+
+-- Toggle flutuante ---------------------------------------------------
 local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Name = "LightHopToggle"
-
--- MAIOR QUE O ORIGINAL
-ToggleBtn.Size = UDim2.fromOffset(64, 64)
-ToggleBtn.Position = UDim2.new(0, 18, 0.5, -32)
-
-ToggleBtn.BackgroundColor3 = THEME.Background
+ToggleBtn.Name = "Toggle"
+ToggleBtn.Size = UDim2.new(0, 46, 0, 46)
+ToggleBtn.Position = UDim2.new(0, 14, 0.5, -23)
+ToggleBtn.BackgroundColor3 = Theme.Accent
 ToggleBtn.Text = "LH"
-ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.TextSize = 18
-ToggleBtn.TextColor3 = THEME.Accent
+ToggleBtn.Font = Theme.FontBold
+ToggleBtn.TextSize = 15
+ToggleBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
 ToggleBtn.AutoButtonColor = false
 ToggleBtn.Parent = ScreenGui
+Util.Round(ToggleBtn, 12)
+GlobalMaid:Add(ToggleBtn)
 
-local ToggleCorner = Instance.new("UICorner")
-ToggleCorner.CornerRadius = UDim.new(0, 16)
-ToggleCorner.Parent = ToggleBtn
-
-local ToggleStroke = Instance.new("UIStroke")
-ToggleStroke.Color = THEME.Accent
-ToggleStroke.Thickness = 2
-ToggleStroke.Transparency = 0.15
-ToggleStroke.Parent = ToggleBtn
-
--- brilho interno
-local ToggleGradient = Instance.new("UIGradient")
-ToggleGradient.Rotation = 45
-ToggleGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 35, 42)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 18))
-})
-ToggleGradient.Parent = ToggleBtn
-
---// ICON
 local IconImage = Instance.new("ImageLabel")
-IconImage.Name = "Icon"
-IconImage.Size = UDim2.new(1, -8, 1, -8)
-IconImage.Position = UDim2.fromOffset(4, 4)
+IconImage.Size = UDim2.new(1, 0, 1, 0)
 IconImage.BackgroundTransparency = 1
 IconImage.ScaleType = Enum.ScaleType.Crop
 IconImage.Visible = false
 IconImage.Parent = ToggleBtn
-
-local IconCorner = Instance.new("UICorner")
-IconCorner.CornerRadius = UDim.new(0, 14)
-IconCorner.Parent = IconImage
-
-local function applyIcon(image)
-    IconImage.Image = image
-    IconImage.Visible = true
-    ToggleBtn.Text = ""
-end
+Util.Round(IconImage, 12)
 
 task.spawn(function()
-    if ICON_ASSET_ID ~= "" then
+    local function apply(img)
+        IconImage.Image = img
+        IconImage.Visible = true
+        ToggleBtn.Text = ""
+    end
+    if Config.IconAssetId ~= "" then
+        pcall(apply, Config.IconAssetId)
+    elseif Config.IconUrl ~= "" then
         pcall(function()
-            applyIcon(ICON_ASSET_ID)
-        end)
-
-    elseif ICON_URL ~= "" then
-        pcall(function()
-            local data = game:HttpGet(ICON_URL)
-
-            writefile("LightHop_icon.png", data)
-
+            local fileName = "LightHopPro_icon.png"
+            if not (isfile and isfile(fileName)) then
+                local data = game:HttpGet(Config.IconUrl)
+                writefile(fileName, data)
+            end
             local getAsset = getcustomasset or getsynasset
-
             if getAsset then
-                applyIcon(getAsset("LightHop_icon.png"))
+                apply(getAsset(fileName))
             end
         end)
     end
 end)
 
---========================================================
---// MAIN PANEL
---========================================================
-
+-- Painel principal ----------------------------------------------------
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-
-local camera = workspace.CurrentCamera
-local viewport = camera and camera.ViewportSize or Vector2.new(900, 700)
-
-local PANEL_W = math.min(760, viewport.X - 35)
-local PANEL_H = math.min(610, viewport.Y - 35)
-
-Main.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
-Main.Position = UDim2.new(
-    0.5,
-    -PANEL_W / 2,
-    0.5,
-    -PANEL_H / 2
-)
-
-Main.BackgroundColor3 = THEME.Panel
+Main.BackgroundColor3 = Theme.Background
 Main.BorderSizePixel = 0
 Main.ClipsDescendants = true
+Main.AnchorPoint = Vector2.new(0.5, 0.5)
+Main.Position = UDim2.new(0.5, 0, 0.5, 0)
 Main.Parent = ScreenGui
+Util.Round(Main, 14)
+Util.Stroke(Main, Theme.Border, 1)
+GlobalMaid:Add(Main)
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 18)
-MainCorner.Parent = Main
+local function computePanelSize()
+    local cam = workspace.CurrentCamera
+    local vp = (cam and cam.ViewportSize) or Vector2.new(800, 600)
+    local w = math.clamp(vp.X - 32, 300, 430)
+    local h = math.clamp(vp.Y - 32, 380, 560)
+    return w, h
+end
 
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = THEME.Border
-MainStroke.Thickness = 1.5
-MainStroke.Transparency = 0.15
-MainStroke.Parent = Main
+local function applyPanelSize(animate)
+    local w, h = computePanelSize()
+    local goal = { Size = UDim2.new(0, w, 0, h) }
+    if animate then
+        Util.Tween(Main, goal, 0.2)
+    else
+        Main.Size = UDim2.new(0, w, 0, h)
+    end
+end
+applyPanelSize(false)
 
---========================================================
---// HEADER
---========================================================
+GlobalMaid:Add(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    applyPanelSize(true)
+end))
 
+-- Header ----------------------------------------------------------------
 local Header = Instance.new("Frame")
-Header.Name = "Header"
-Header.Size = UDim2.new(1, 0, 0, 92)
-Header.BackgroundColor3 = THEME.Background
+Header.Size = UDim2.new(1, 0, 0, 56)
+Header.BackgroundColor3 = Theme.Surface
 Header.BorderSizePixel = 0
 Header.Parent = Main
-
-local HeaderCorner = Instance.new("UICorner")
-HeaderCorner.CornerRadius = UDim.new(0, 18)
-HeaderCorner.Parent = Header
+Util.Round(Header, 14)
 
 local HeaderFix = Instance.new("Frame")
-HeaderFix.Size = UDim2.new(1, 0, 0, 20)
-HeaderFix.Position = UDim2.new(0, 0, 1, -20)
-HeaderFix.BackgroundColor3 = THEME.Background
+HeaderFix.Size = UDim2.new(1, 0, 0, 16)
+HeaderFix.Position = UDim2.new(0, 0, 1, -16)
+HeaderFix.BackgroundColor3 = Theme.Surface
 HeaderFix.BorderSizePixel = 0
 HeaderFix.Parent = Header
 
---// LOGO
-local Logo = Instance.new("Frame")
-Logo.Size = UDim2.fromOffset(62, 62)
-Logo.Position = UDim2.new(0, 18, 0.5, -31)
-Logo.BackgroundColor3 = THEME.Card
-Logo.BorderSizePixel = 0
-Logo.Parent = Header
-
-local LogoCorner = Instance.new("UICorner")
-LogoCorner.CornerRadius = UDim.new(1, 0)
-LogoCorner.Parent = Logo
-
-local LogoStroke = Instance.new("UIStroke")
-LogoStroke.Color = THEME.Accent
-LogoStroke.Thickness = 2
-LogoStroke.Parent = Logo
-
-local LogoText = Instance.new("TextLabel")
-LogoText.Size = UDim2.fromScale(1, 1)
-LogoText.BackgroundTransparency = 1
-LogoText.Text = "LH"
-LogoText.Font = Enum.Font.GothamBlack
-LogoText.TextSize = 19
-LogoText.TextColor3 = THEME.Accent
-LogoText.Parent = Logo
-
---// TITLE
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(0, 350, 0, 34)
-Title.Position = UDim2.new(0, 94, 0, 25)
-Title.BackgroundTransparency = 1
-Title.Text = "LIGHT HOP "
-Title.Font = Enum.Font.GothamBlack
-Title.TextSize = 24
-Title.TextColor3 = THEME.Text
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = Header
-
-local ProText = Instance.new("TextLabel")
-ProText.Size = UDim2.fromOffset(70, 34)
-ProText.Position = UDim2.new(0, 238, 0, 25)
-ProText.BackgroundTransparency = 1
-ProText.Text = "PRO"
-ProText.Font = Enum.Font.GothamBlack
-ProText.TextSize = 24
-ProText.TextColor3 = THEME.Accent
-ProText.TextXAlignment = Enum.TextXAlignment.Left
-ProText.Parent = Header
-
---// SUBTITLE
-local Subtitle = Instance.new("TextLabel")
-Subtitle.Size = UDim2.new(0, 350, 0, 20)
-Subtitle.Position = UDim2.new(0, 96, 0, 54)
-Subtitle.BackgroundTransparency = 1
-Subtitle.Text = "SERVER BROWSER  •  FAST SERVER HOP"
-Subtitle.Font = Enum.Font.GothamMedium
-Subtitle.TextSize = 10
-Subtitle.TextColor3 = THEME.TextDim
-Subtitle.TextXAlignment = Enum.TextXAlignment.Left
-Subtitle.Parent = Header
-
---// GEAR
-local GearBtn = Instance.new("TextButton")
-GearBtn.Size = UDim2.fromOffset(38, 38)
-GearBtn.Position = UDim2.new(1, -92, 0.5, -19)
-GearBtn.BackgroundColor3 = THEME.Card
-GearBtn.Text = "⚙"
-GearBtn.Font = Enum.Font.GothamBold
-GearBtn.TextSize = 21
-GearBtn.TextColor3 = THEME.TextDim
-GearBtn.AutoButtonColor = false
-GearBtn.Parent = Header
-
-local GearCorner = Instance.new("UICorner")
-GearCorner.CornerRadius = UDim.new(0, 10)
-GearCorner.Parent = GearBtn
-
---========================================================
---// CLOSE BUTTON
---========================================================
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Size = UDim2.new(1, -100, 1, 0)
+TitleLabel.Position = UDim2.new(0, 16, 0, 0)
+TitleLabel.Font = Theme.FontBold
+TitleLabel.TextSize = 17
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.TextColor3 = Theme.Text
+TitleLabel.RichText = true
+TitleLabel.Text = "LIGHT HOP <font color=\"#FFBF2B\">PRO</font>"
+TitleLabel.Parent = Header
 
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Name = "Close"
-CloseBtn.Size = UDim2.fromOffset(44, 44)
-CloseBtn.Position = UDim2.new(1, -48, 0, 16)
-
--- MAIOR QUE O ORIGINAL
-CloseBtn.BackgroundColor3 = Color3.fromRGB(58, 35, 37)
-CloseBtn.Text = "×"
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 29
-CloseBtn.TextColor3 = Color3.fromRGB(255, 115, 115)
+CloseBtn.Size = UDim2.new(0, 32, 0, 32)
+CloseBtn.Position = UDim2.new(1, -42, 0.5, -16)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(48, 30, 30)
+CloseBtn.Text = "âœ•"
+CloseBtn.Font = Theme.FontBold
+CloseBtn.TextSize = 15
+CloseBtn.TextColor3 = Theme.Danger
 CloseBtn.AutoButtonColor = false
-CloseBtn.Parent = Main
+CloseBtn.Parent = Header
+Util.Round(CloseBtn, 9)
 
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 12)
-CloseCorner.Parent = CloseBtn
+-- Sort bar ----------------------------------------------------------------
+local SortBar = Instance.new("Frame")
+SortBar.Size = UDim2.new(1, -24, 0, 32)
+SortBar.Position = UDim2.new(0, 12, 0, 66)
+SortBar.BackgroundTransparency = 1
+SortBar.Parent = Main
 
---========================================================
---// FILTER BAR
---========================================================
+local SortLayout = Instance.new("UIListLayout")
+SortLayout.FillDirection = Enum.FillDirection.Horizontal
+SortLayout.Padding = UDim.new(0, 6)
+SortLayout.Parent = SortBar
 
-local FilterBar = Instance.new("Frame")
-FilterBar.Size = UDim2.new(1, -32, 0, 48)
-FilterBar.Position = UDim2.new(0, 16, 0, 105)
-FilterBar.BackgroundTransparency = 1
-FilterBar.Parent = Main
-
-local function createFilterButton(text, icon, position, width)
-    local button = Instance.new("TextButton")
-
-    button.Size = UDim2.fromOffset(width, 42)
-    button.Position = position
-
-    button.BackgroundColor3 = THEME.Card
-    button.BorderSizePixel = 0
-
-    button.Text = icon .. "  " .. text
-
-    button.Font = Enum.Font.GothamBold
-    button.TextSize = 11
-    button.TextColor3 = THEME.TextDim
-
-    button.AutoButtonColor = false
-    button.Parent = FilterBar
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 11)
-    corner.Parent = button
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = THEME.Border
-    stroke.Thickness = 1
-    stroke.Parent = button
-
-    return button
+local sortButtons = {}
+local function createSortButton(key, text)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 0, 1, 0)
+    btn.AutomaticSize = Enum.AutomaticSize.X
+    btn.BackgroundColor3 = Theme.Surface
+    btn.Text = "  " .. text .. "  "
+    btn.Font = Theme.Font
+    btn.TextSize = 12
+    btn.TextColor3 = Theme.TextDim
+    btn.AutoButtonColor = false
+    btn.LayoutOrder = #sortButtons
+    btn.Parent = SortBar
+    Util.Round(btn, 8)
+    sortButtons[key] = btn
+    return btn
 end
 
-local BtnPing = createFilterButton(
-    "MENOR PING",
-    "⌁",
-    UDim2.fromOffset(0, 0),
-    145
-)
+createSortButton("ping", "Menor Ping")
+createSortButton("low", "Mais Vazios")
+createSortButton("high", "Mais Jogadores")
 
-local BtnLow = createFilterButton(
-    "MAIS VAZIOS",
-    "♧",
-    UDim2.fromOffset(153, 0),
-    145
-)
-
-local BtnHigh = createFilterButton(
-    "MAIS JOGADORES",
-    "♟",
-    UDim2.fromOffset(306, 0),
-    155
-)
-
-local BtnAdvanced = createFilterButton(
-    "FILTRO AVANÇADO",
-    "⚑",
-    UDim2.fromOffset(469, 0),
-    165
-)
-
-local currentSort = "ping"
-
-local function setActive(button)
-    for _, b in ipairs({
-        BtnPing,
-        BtnLow,
-        BtnHigh
-    }) do
-        b.BackgroundColor3 = THEME.Card
-        b.TextColor3 = THEME.TextDim
+local function refreshSortButtonsVisual()
+    for key, btn in pairs(sortButtons) do
+        local active = State:Get("sort") == key
+        Util.Tween(btn, {
+            BackgroundColor3 = active and Theme.Accent or Theme.Surface,
+        }, 0.15)
+        btn.TextColor3 = active and Color3.fromRGB(20, 20, 20) or Theme.TextDim
     end
-
-    button.BackgroundColor3 = THEME.Accent
-    button.TextColor3 = THEME.Black
 end
 
-setActive(BtnPing)
-
---========================================================
---// STATUS AREA
---========================================================
+-- Status row ----------------------------------------------------------------
+local StatusRow = Instance.new("Frame")
+StatusRow.Size = UDim2.new(1, -24, 0, 20)
+StatusRow.Position = UDim2.new(0, 12, 0, 104)
+StatusRow.BackgroundTransparency = 1
+StatusRow.Parent = Main
 
 local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -180, 0, 25)
-StatusLabel.Position = UDim2.new(0, 18, 0, 161)
 StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "servidores carregados 0"
-StatusLabel.Font = Enum.Font.GothamMedium
-StatusLabel.TextSize = 13
-StatusLabel.TextColor3 = THEME.TextDim
+StatusLabel.Size = UDim2.new(1, -76, 1, 0)
+StatusLabel.Font = Theme.Font
+StatusLabel.TextSize = 12
+StatusLabel.TextColor3 = Theme.TextDim
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.Parent = Main
+StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+StatusLabel.Text = "Pronto"
+StatusLabel.Parent = StatusRow
 
---// LOADING BAR
-local LoadingBack = Instance.new("Frame")
-LoadingBack.Size = UDim2.fromOffset(180, 7)
-LoadingBack.Position = UDim2.new(1, -290, 0, 170)
-LoadingBack.BackgroundColor3 = Color3.fromRGB(55, 55, 62)
-LoadingBack.BorderSizePixel = 0
-LoadingBack.Parent = Main
-
-local LoadingCorner = Instance.new("UICorner")
-LoadingCorner.CornerRadius = UDim.new(1, 0)
-LoadingCorner.Parent = LoadingBack
-
-local LoadingBar = Instance.new("Frame")
-LoadingBar.Size = UDim2.new(0, 0, 1, 0)
-LoadingBar.BackgroundColor3 = THEME.Accent
-LoadingBar.BorderSizePixel = 0
-LoadingBar.Parent = LoadingBack
-
-local LoadingBarCorner = Instance.new("UICorner")
-LoadingBarCorner.CornerRadius = UDim.new(1, 0)
-LoadingBarCorner.Parent = LoadingBar
-
---// REFRESH
 local RefreshBtn = Instance.new("TextButton")
-RefreshBtn.Size = UDim2.fromOffset(96, 34)
-RefreshBtn.Position = UDim2.new(1, -110, 0, 156)
-RefreshBtn.BackgroundColor3 = THEME.Card
-RefreshBtn.Text = "↻  Refresh"
-RefreshBtn.Font = Enum.Font.GothamBold
+RefreshBtn.Size = UDim2.new(0, 72, 1, 0)
+RefreshBtn.Position = UDim2.new(1, -72, 0, 0)
+RefreshBtn.BackgroundColor3 = Theme.Surface
+RefreshBtn.Text = "â†» Refresh"
+RefreshBtn.Font = Theme.Font
 RefreshBtn.TextSize = 12
-RefreshBtn.TextColor3 = THEME.Text
+RefreshBtn.TextColor3 = Theme.Text
 RefreshBtn.AutoButtonColor = false
-RefreshBtn.Parent = Main
+RefreshBtn.Parent = StatusRow
+Util.Round(RefreshBtn, 7)
 
-local RefreshCorner = Instance.new("UICorner")
-RefreshCorner.CornerRadius = UDim.new(0, 10)
-RefreshCorner.Parent = RefreshBtn
+-- Progress bar (loading) ------------------------------------------------
+local ProgressTrack = Instance.new("Frame")
+ProgressTrack.Size = UDim2.new(1, -24, 0, 3)
+ProgressTrack.Position = UDim2.new(0, 12, 0, 128)
+ProgressTrack.BackgroundColor3 = Theme.Border
+ProgressTrack.BorderSizePixel = 0
+ProgressTrack.Parent = Main
+Util.Round(ProgressTrack, 2)
 
---========================================================
---// SERVER LIST
---========================================================
+local ProgressFill = Instance.new("Frame")
+ProgressFill.Size = UDim2.new(0, 0, 1, 0)
+ProgressFill.BackgroundColor3 = Theme.Accent
+ProgressFill.BorderSizePixel = 0
+ProgressFill.Parent = ProgressTrack
+Util.Round(ProgressFill, 2)
 
+local progressLoopThread = nil
+local function setLoadingVisual(loading)
+    if progressLoopThread then
+        task.cancel(progressLoopThread)
+        progressLoopThread = nil
+    end
+    if loading then
+        progressLoopThread = task.spawn(function()
+            while true do
+                Util.Tween(ProgressFill, { Size = UDim2.new(0.75, 0, 1, 0) }, 0.5)
+                task.wait(0.5)
+                Util.Tween(ProgressFill, { Size = UDim2.new(0.15, 0, 1, 0) }, 0.5)
+                task.wait(0.5)
+            end
+        end)
+    else
+        Util.Tween(ProgressFill, { Size = UDim2.new(1, 0, 1, 0) }, 0.2)
+        task.delay(0.25, function()
+            if not State:Get("loading") then
+                ProgressFill.Size = UDim2.new(0, 0, 1, 0)
+            end
+        end)
+    end
+end
+GlobalMaid:Add(function()
+    if progressLoopThread then task.cancel(progressLoopThread) end
+end)
+
+-- Lista de servidores ----------------------------------------------------
 local ListFrame = Instance.new("ScrollingFrame")
-ListFrame.Name = "ServerList"
-
-ListFrame.Size = UDim2.new(1, -32, 0, 315)
-ListFrame.Position = UDim2.new(0, 16, 0, 194)
-
-ListFrame.BackgroundColor3 = Color3.fromRGB(13, 13, 17)
+ListFrame.Size = UDim2.new(1, -24, 1, -228)
+ListFrame.Position = UDim2.new(0, 12, 0, 138)
+ListFrame.BackgroundColor3 = Theme.Surface
 ListFrame.BorderSizePixel = 0
-
-ListFrame.ScrollBarThickness = 5
-ListFrame.ScrollBarImageColor3 = THEME.Accent
-
+ListFrame.ScrollBarThickness = 4
+ListFrame.ScrollBarImageColor3 = Theme.Accent
 ListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 ListFrame.Parent = Main
-
-local ListCorner = Instance.new("UICorner")
-ListCorner.CornerRadius = UDim.new(0, 14)
-ListCorner.Parent = ListFrame
-
-local ListStroke = Instance.new("UIStroke")
-ListStroke.Color = THEME.Border
-ListStroke.Transparency = 0.35
-ListStroke.Parent = ListFrame
+Util.Round(ListFrame, 10)
 
 local ListLayout = Instance.new("UIListLayout")
 ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-ListLayout.Padding = UDim.new(0, 7)
+ListLayout.Padding = UDim.new(0, 6)
 ListLayout.Parent = ListFrame
 
 local ListPadding = Instance.new("UIPadding")
@@ -517,209 +534,83 @@ ListPadding.PaddingLeft = UDim.new(0, 8)
 ListPadding.PaddingRight = UDim.new(0, 8)
 ListPadding.Parent = ListFrame
 
---========================================================
---// BOTTOM CONTROLS
---========================================================
+GlobalMaid:Add(ListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ListFrame.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 16)
+end))
 
-local Bottom = Instance.new("Frame")
-Bottom.Size = UDim2.new(1, -32, 0, 74)
-Bottom.Position = UDim2.new(0, 16, 1, -88)
-Bottom.BackgroundColor3 = THEME.Background
-Bottom.BorderSizePixel = 0
-Bottom.Parent = Main
+-- Empty / Error state label -------------------------------------------
+local EmptyLabel = Instance.new("TextLabel")
+EmptyLabel.BackgroundTransparency = 1
+EmptyLabel.Size = UDim2.new(1, -16, 0, 60)
+EmptyLabel.Position = UDim2.new(0, 8, 0, 8)
+EmptyLabel.Font = Theme.Font
+EmptyLabel.TextSize = 13
+EmptyLabel.TextColor3 = Theme.TextDim
+EmptyLabel.TextWrapped = true
+EmptyLabel.Visible = false
+EmptyLabel.Text = "Nenhum servidor encontrado."
+EmptyLabel.Parent = ListFrame
 
-local BottomCorner = Instance.new("UICorner")
-BottomCorner.CornerRadius = UDim.new(0, 14)
-BottomCorner.Parent = Bottom
+-- Footer: Auto Hop ---------------------------------------------------
+local Footer = Instance.new("Frame")
+Footer.Size = UDim2.new(1, -24, 0, 78)
+Footer.Position = UDim2.new(0, 12, 1, -86)
+Footer.BackgroundColor3 = Theme.Surface
+Footer.BorderSizePixel = 0
+Footer.Parent = Main
+Util.Round(Footer, 10)
 
-local AutoTitle = Instance.new("TextLabel")
-AutoTitle.Size = UDim2.fromOffset(110, 24)
-AutoTitle.Position = UDim2.fromOffset(16, 11)
-AutoTitle.BackgroundTransparency = 1
-AutoTitle.Text = "AUTO HOP"
-AutoTitle.Font = Enum.Font.GothamBold
-AutoTitle.TextSize = 13
-AutoTitle.TextColor3 = THEME.Text
-AutoTitle.TextXAlignment = Enum.TextXAlignment.Left
-AutoTitle.Parent = Bottom
+local AutoHopLabel = Instance.new("TextLabel")
+AutoHopLabel.BackgroundTransparency = 1
+AutoHopLabel.Size = UDim2.new(0, 100, 0, 30)
+AutoHopLabel.Position = UDim2.new(0, 12, 0, 6)
+AutoHopLabel.Font = Theme.FontBold
+AutoHopLabel.TextSize = 13
+AutoHopLabel.TextColor3 = Theme.Text
+AutoHopLabel.TextXAlignment = Enum.TextXAlignment.Left
+AutoHopLabel.Text = "AUTO HOP"
+AutoHopLabel.Parent = Footer
 
-local AutoStatus = Instance.new("TextLabel")
-AutoStatus.Size = UDim2.fromOffset(120, 20)
-AutoStatus.Position = UDim2.fromOffset(16, 34)
-AutoStatus.BackgroundTransparency = 1
-AutoStatus.Text = "Melhor servidor"
-AutoStatus.Font = Enum.Font.Gotham
-AutoStatus.TextSize = 10
-AutoStatus.TextColor3 = THEME.TextDim
-AutoStatus.TextXAlignment = Enum.TextXAlignment.Left
-AutoStatus.Parent = Bottom
+-- Toggle switch (pill)
+local SwitchTrack = Instance.new("Frame")
+SwitchTrack.Size = UDim2.new(0, 44, 0, 24)
+SwitchTrack.Position = UDim2.new(1, -56, 0, 8)
+SwitchTrack.BackgroundColor3 = Theme.Border
+SwitchTrack.Parent = Footer
+Util.Round(SwitchTrack, 12)
 
---// AUTO TOGGLE
-local AutoToggle = Instance.new("TextButton")
-AutoToggle.Size = UDim2.fromOffset(48, 26)
-AutoToggle.Position = UDim2.fromOffset(130, 22)
-AutoToggle.BackgroundColor3 = THEME.Accent
-AutoToggle.Text = ""
-AutoToggle.AutoButtonColor = false
-AutoToggle.Parent = Bottom
+local SwitchKnob = Instance.new("Frame")
+SwitchKnob.Size = UDim2.new(0, 18, 0, 18)
+SwitchKnob.Position = UDim2.new(0, 3, 0.5, -9)
+SwitchKnob.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+SwitchKnob.Parent = SwitchTrack
+Util.Round(SwitchKnob, 9)
 
-local AutoToggleCorner = Instance.new("UICorner")
-AutoToggleCorner.CornerRadius = UDim.new(1, 0)
-AutoToggleCorner.Parent = AutoToggle
+local SwitchBtn = Instance.new("TextButton")
+SwitchBtn.Size = UDim2.new(1, 0, 1, 0)
+SwitchBtn.BackgroundTransparency = 1
+SwitchBtn.Text = ""
+SwitchBtn.Parent = SwitchTrack
 
-local ToggleCircle = Instance.new("Frame")
-ToggleCircle.Size = UDim2.fromOffset(20, 20)
-ToggleCircle.Position = UDim2.new(1, -23, 0.5, -10)
-ToggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-ToggleCircle.BorderSizePixel = 0
-ToggleCircle.Parent = AutoToggle
-
-local ToggleCircleCorner = Instance.new("UICorner")
-ToggleCircleCorner.CornerRadius = UDim.new(1, 0)
-ToggleCircleCorner.Parent = ToggleCircle
-
-local autoEnabled = true
-
---// AUTO MODE BUTTON
-local AutoMode = Instance.new("TextButton")
-AutoMode.Size = UDim2.fromOffset(190, 42)
-AutoMode.Position = UDim2.new(0, 195, 0.5, -21)
-AutoMode.BackgroundColor3 = THEME.Card
-AutoMode.Text = "✓  MELHOR PING  ⌁"
-AutoMode.Font = Enum.Font.GothamBold
-AutoMode.TextSize = 12
-AutoMode.TextColor3 = THEME.Accent
-AutoMode.AutoButtonColor = false
-AutoMode.Parent = Bottom
-
-local AutoModeCorner = Instance.new("UICorner")
-AutoModeCorner.CornerRadius = UDim.new(0, 10)
-AutoModeCorner.Parent = AutoMode
-
-local AutoModeStroke = Instance.new("UIStroke")
-AutoModeStroke.Color = THEME.Accent
-AutoModeStroke.Thickness = 1
-AutoModeStroke.Parent = AutoMode
-
---// AUTO HOP BUTTON
-local AutoHopBtn = Instance.new("TextButton")
-AutoHopBtn.Size = UDim2.new(0, 210, 0, 42)
-AutoHopBtn.Position = UDim2.new(1, -226, 0.5, -21)
-AutoHopBtn.BackgroundColor3 = THEME.Accent
-AutoHopBtn.Text = "⚒  AUTO HOP"
-AutoHopBtn.Font = Enum.Font.GothamBlack
-AutoHopBtn.TextSize = 13
-AutoHopBtn.TextColor3 = THEME.Black
-AutoHopBtn.AutoButtonColor = false
-AutoHopBtn.Parent = Bottom
-
-local AutoHopCorner = Instance.new("UICorner")
-AutoHopCorner.CornerRadius = UDim.new(0, 10)
-AutoHopCorner.Parent = AutoHopBtn
-
---========================================================
---// SERVER DATA
---========================================================
-
-local serversCache = {}
-local isLoading = false
-
---========================================================
---// PING COLOR
---========================================================
-
-local function getPingColor(ping)
-    ping = tonumber(ping) or 999
-
-    if ping <= 80 then
-        return THEME.GoodPing
-    elseif ping <= 140 then
-        return THEME.MediumPing
-    else
-        return THEME.BadPing
-    end
+local function refreshSwitchVisual()
+    local on = State:Get("autoHopOn")
+    Util.Tween(SwitchTrack, { BackgroundColor3 = on and Theme.Accent or Theme.Border }, 0.15)
+    Util.Tween(SwitchKnob, { Position = on and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9) }, 0.15)
 end
 
---========================================================
---// CLEAR LIST
---========================================================
+local AutoHopModeRow = Instance.new("Frame")
+AutoHopModeRow.Size = UDim2.new(1, -24, 0, 24)
+AutoHopModeRow.Position = UDim2.new(0, 12, 0, 40)
+AutoHopModeRow.BackgroundTransparency = 1
+AutoHopModeRow.Parent = Footer
 
-local function clearList()
-    for _, child in ipairs(ListFrame:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
-        end
-    end
-end
+local ModeLayout = Instance.new("UIListLayout")
+ModeLayout.FillDirection = Enum.FillDirection.Horizontal
+ModeLayout.Padding = UDim.new(0, 6)
+ModeLayout.Parent = AutoHopModeRow
 
---========================================================
---// SERVER ENTRY
---========================================================
-
-local function createServerEntry(index, server)
-
-    local entry = Instance.new("Frame")
-
-    entry.Size = UDim2.new(1, 0, 0, 78)
-
-    entry.BackgroundColor3 = THEME.Card
-    entry.BorderSizePixel = 0
-
-    entry.LayoutOrder = index
-    entry.Parent = ListFrame
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 11)
-    corner.Parent = entry
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = THEME.Border
-    stroke.Transparency = 0.45
-    stroke.Parent = entry
-
-    --====================================================
-    -- NUMBER
-    --====================================================
-
-    local number = Instance.new("TextLabel")
-    number.Size = UDim2.fromOffset(40, 70)
-    number.Position = UDim2.fromOffset(8, 4)
-
-    number.BackgroundTransparency = 1
-
-    number.Text = "#" .. tostring(index)
-
-    number.Font = Enum.Font.GothamBlack
-    number.TextSize = 15
-    number.TextColor3 = THEME.TextDim
-
-    number.TextXAlignment = Enum.TextXAlignment.Center
-    number.Parent = entry
-
-    --====================================================
-    -- PLAYER ICON / COUNT
-    --====================================================
-
-    local playerCount = Instance.new("TextLabel")
-
-    playerCount.Size = UDim2.fromOffset(90, 24)
-    playerCount.Position = UDim2.fromOffset(55, 12)
-
-    playerCount.BackgroundTransparency = 1
-
-    playerCount.Text =
-        "♟  " ..
-        tostring(server.playing or 0) ..
-        " / " ..
-        tostring(server.maxPlayers or 0)
-
-    playerCount.Font = Enum.Font.GothamBold
-    playerCount.TextSize = 14
-    playerCount.TextColor3 = THEME.Text
-
-    playerCount.TextXAlignment = Enum.TextXAlignment.Left
-    playerCount.Parent = entry
-
-    --====================================================
-    -- PLAYER BAR
- 
+local modeButtons = {}
+local function createModeButton(key, text)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 0, 1, 0)
+    btn.AutomaticSize = Enum.Aut
