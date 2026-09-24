@@ -1,8 +1,9 @@
 --[[
-    Light Hop
+    Light Hop PRO
     - Ordena por menor ping / menos players / mais players
     - Mostra Ping + FPS
-    - Tema amarelo limpo e moderno
+    - Visual atualizado (tema preto/amarelo, inspirado na referÃªncia)
+    - BotÃ£o de abrir/fechar (LH) e botÃ£o de fechar (X) maiores
 ]]
 
 if not game:IsLoaded() then
@@ -32,24 +33,38 @@ local ICON_ASSET_ID = ""
 local ICON_URL = "https://raw.githubusercontent.com/sala192828817-dev/LightHop/main/foto.png"
 
 local THEME = {
-    Background = Color3.fromRGB(18, 18, 22),
-    Secondary = Color3.fromRGB(28, 28, 34),
+    Background = Color3.fromRGB(14, 14, 17),
+    Secondary = Color3.fromRGB(24, 24, 29),
+    Card = Color3.fromRGB(20, 20, 24),
     Accent = Color3.fromRGB(255, 190, 40),
     AccentHover = Color3.fromRGB(255, 210, 70),
     Text = Color3.fromRGB(245, 245, 245),
-    TextDim = Color3.fromRGB(170, 170, 180),
-    Border = Color3.fromRGB(50, 50, 58),
+    TextDim = Color3.fromRGB(160, 160, 170),
+    Border = Color3.fromRGB(48, 48, 56),
     GoodPing = Color3.fromRGB(80, 220, 120),
     MediumPing = Color3.fromRGB(255, 190, 40),
     BadPing = Color3.fromRGB(230, 80, 80),
     TitleYellow = Color3.fromRGB(255, 200, 50),
+    CloseRed = Color3.fromRGB(235, 90, 90),
 }
+
+-- ===================== BASE GUI =====================
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "LightHop"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 9999
+ScreenGui.IgnoreGuiInset = true
+
+-- No Delta (principalmente mobile), gethui()/CoreGui Ã s vezes devolvem um
+-- container que nÃ£o renderiza por cima do jogo. PlayerGui Ã© o mais confiÃ¡vel.
 local function getGuiParent()
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+    if playerGui then
+        return playerGui
+    end
+
     local okHui, hui = pcall(function()
         return gethui and gethui()
     end)
@@ -57,17 +72,11 @@ local function getGuiParent()
         return hui
     end
 
-    local okCore = pcall(function()
-        return game:GetService("CoreGui"):GetChildren()
-    end)
-    if okCore then
-        return game:GetService("CoreGui")
-    end
-
-    return LocalPlayer:WaitForChild("PlayerGui")
+    return game:GetService("CoreGui")
 end
 
 ScreenGui.Parent = getGuiParent()
+ScreenGui.Enabled = true
 
 pcall(function()
     game:GetService("StarterGui"):SetCore("SendNotification", {
@@ -77,21 +86,27 @@ pcall(function()
     })
 end)
 
+-- ===================== JANELA PRINCIPAL =====================
+
 local Main = Instance.new("Frame")
 Main.Name = "Main"
 local cam = workspace.CurrentCamera
 local viewport = cam and cam.ViewportSize or Vector2.new(800, 600)
-local PANEL_W = math.min(420, viewport.X - 40)
-local PANEL_H = math.min(520, viewport.Y - 40)
+local PANEL_W = math.min(460, viewport.X - 40)
+local PANEL_H = math.min(600, viewport.Y - 40)
 Main.Size = UDim2.new(0, PANEL_W, 0, PANEL_H)
 Main.Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
 Main.BackgroundColor3 = THEME.Background
 Main.BorderSizePixel = 0
-Main.ClipsDescendants = true
+Main.ClipsDescendants = false
+Main.Visible = true
+Main.ZIndex = 2
 Main.Parent = ScreenGui
 
+print("[LightHop] ScreenGui parented to: " .. ScreenGui.Parent:GetFullName())
+
 local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.CornerRadius = UDim.new(0, 14)
 UICorner.Parent = Main
 
 local UIStroke = Instance.new("UIStroke")
@@ -99,62 +114,118 @@ UIStroke.Color = THEME.Border
 UIStroke.Thickness = 1
 UIStroke.Parent = Main
 
+-- Avatar circular no topo (usa o mesmo Ã­cone do botÃ£o LH)
+local AvatarHolder = Instance.new("Frame")
+AvatarHolder.Size = UDim2.new(0, 56, 0, 56)
+AvatarHolder.Position = UDim2.new(0.5, -28, 0, -28)
+AvatarHolder.BackgroundColor3 = THEME.Secondary
+AvatarHolder.BorderSizePixel = 0
+AvatarHolder.ZIndex = 3
+AvatarHolder.Parent = Main
+
+local AvatarCorner = Instance.new("UICorner")
+AvatarCorner.CornerRadius = UDim.new(1, 0)
+AvatarCorner.Parent = AvatarHolder
+
+local AvatarStroke = Instance.new("UIStroke")
+AvatarStroke.Color = THEME.Accent
+AvatarStroke.Thickness = 2
+AvatarStroke.Parent = AvatarHolder
+
+local AvatarImage = Instance.new("ImageLabel")
+AvatarImage.Size = UDim2.new(1, -6, 1, -6)
+AvatarImage.Position = UDim2.new(0, 3, 0, 3)
+AvatarImage.BackgroundTransparency = 1
+AvatarImage.ScaleType = Enum.ScaleType.Crop
+AvatarImage.ZIndex = 3
+AvatarImage.Parent = AvatarHolder
+
+local AvatarCropCorner = Instance.new("UICorner")
+AvatarCropCorner.CornerRadius = UDim.new(1, 0)
+AvatarCropCorner.Parent = AvatarImage
+
+-- Barra de tÃ­tulo
 local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 42)
-TitleBar.BackgroundColor3 = THEME.Secondary
+TitleBar.Size = UDim2.new(1, 0, 0, 78)
+TitleBar.Position = UDim2.new(0, 0, 0, 0)
+TitleBar.BackgroundColor3 = THEME.Background
 TitleBar.BorderSizePixel = 0
 TitleBar.Parent = Main
 
 local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 12)
+TitleCorner.CornerRadius = UDim.new(0, 14)
 TitleCorner.Parent = TitleBar
 
 local TitleFix = Instance.new("Frame")
 TitleFix.Size = UDim2.new(1, 0, 0, 16)
 TitleFix.Position = UDim2.new(0, 0, 1, -16)
-TitleFix.BackgroundColor3 = THEME.Secondary
+TitleFix.BackgroundColor3 = THEME.Background
 TitleFix.BorderSizePixel = 0
 TitleFix.Parent = TitleBar
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -50, 1, 0)
-Title.Position = UDim2.new(0, 16, 0, 0)
+Title.Size = UDim2.new(1, -100, 0, 26)
+Title.Position = UDim2.new(0, 0, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "Light Hop"
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 17
+Title.Text = "LIGHT HOP PRO"
+Title.Font = Enum.Font.GothamBlack
+Title.TextSize = 20
 Title.TextColor3 = THEME.TitleYellow
-Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = TitleBar
 
+-- Engrenagem (configuraÃ§Ãµes) ao lado do tÃ­tulo
+local GearBtn = Instance.new("TextButton")
+GearBtn.Size = UDim2.new(0, 26, 0, 26)
+GearBtn.Position = UDim2.new(0.5, 108, 0, 42)
+GearBtn.BackgroundTransparency = 1
+GearBtn.Text = "\226\154\153" -- âš™
+GearBtn.Font = Enum.Font.GothamBold
+GearBtn.TextSize = 18
+GearBtn.TextColor3 = THEME.TextDim
+GearBtn.Parent = TitleBar
+
+-- BotÃ£o de fechar (X) â€” MAIOR e destacado, canto superior direito
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 32, 0, 32)
-CloseBtn.Position = UDim2.new(1, -38, 0.5, -16)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(55, 35, 35)
+CloseBtn.Size = UDim2.new(0, 46, 0, 46)
+CloseBtn.Position = UDim2.new(1, -58, 0, 12)
+CloseBtn.BackgroundColor3 = THEME.CloseRed
 CloseBtn.Text = "X"
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 20
-CloseBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
+CloseBtn.Font = Enum.Font.GothamBlack
+CloseBtn.TextSize = 22
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.AutoButtonColor = true
 CloseBtn.Parent = TitleBar
 
 local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 8)
+CloseCorner.CornerRadius = UDim.new(0, 12)
 CloseCorner.Parent = CloseBtn
 
+local CloseStroke = Instance.new("UIStroke")
+CloseStroke.Color = Color3.fromRGB(255, 150, 150)
+CloseStroke.Thickness = 1
+CloseStroke.Parent = CloseBtn
+
+-- BotÃ£o flutuante para abrir/fechar o painel (LH) â€” MAIOR
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "Toggle"
-ToggleBtn.Size = UDim2.new(0, 44, 0, 44)
-ToggleBtn.Position = UDim2.new(0, 12, 0.5, -22)
+ToggleBtn.Size = UDim2.new(0, 64, 0, 64)
+ToggleBtn.Position = UDim2.new(0, 12, 0.5, -32)
 ToggleBtn.BackgroundColor3 = THEME.Accent
 ToggleBtn.Text = "LH"
-ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.TextSize = 16
+ToggleBtn.Font = Enum.Font.GothamBlack
+ToggleBtn.TextSize = 20
 ToggleBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
 ToggleBtn.Parent = ScreenGui
 
 local ToggleCorner = Instance.new("UICorner")
-ToggleCorner.CornerRadius = UDim.new(0, 10)
+ToggleCorner.CornerRadius = UDim.new(0, 16)
 ToggleCorner.Parent = ToggleBtn
+
+local ToggleStroke = Instance.new("UIStroke")
+ToggleStroke.Color = THEME.AccentHover
+ToggleStroke.Thickness = 2
+ToggleStroke.Parent = ToggleBtn
 
 local IconImage = Instance.new("ImageLabel")
 IconImage.Size = UDim2.new(1, 0, 1, 0)
@@ -165,13 +236,14 @@ IconImage.Visible = false
 IconImage.Parent = ToggleBtn
 
 local IconCorner = Instance.new("UICorner")
-IconCorner.CornerRadius = UDim.new(0, 10)
+IconCorner.CornerRadius = UDim.new(0, 16)
 IconCorner.Parent = IconImage
 
 local function applyIcon(image)
     IconImage.Image = image
     IconImage.Visible = true
     ToggleBtn.Text = ""
+    AvatarImage.Image = image
 end
 
 task.spawn(function()
@@ -187,6 +259,7 @@ task.spawn(function()
     end
 end)
 
+-- Arrastar o botÃ£o flutuante (LH)
 local toggleDragging = false
 local toggleMoved = false
 local toggleDragStart, toggleStartPos
@@ -228,20 +301,29 @@ CloseBtn.MouseButton1Click:Connect(function()
     Main.Visible = false
 end)
 
+-- ===================== BOTÃ•ES DE ORDENAÃ‡ÃƒO =====================
+
 local SortFrame = Instance.new("Frame")
-SortFrame.Size = UDim2.new(1, -24, 0, 34)
-SortFrame.Position = UDim2.new(0, 12, 0, 54)
+SortFrame.Size = UDim2.new(1, -24, 0, 36)
+SortFrame.Position = UDim2.new(0, 12, 0, 86)
 SortFrame.BackgroundTransparency = 1
 SortFrame.Parent = Main
 
-local function createSortButton(text, position)
+local SortLayout = Instance.new("UIListLayout")
+SortLayout.FillDirection = Enum.FillDirection.Horizontal
+SortLayout.SortOrder = Enum.SortOrder.LayoutOrder
+SortLayout.Padding = UDim.new(0, 6)
+SortLayout.Parent = SortFrame
+
+local function createSortButton(text, layoutOrder)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.32, 0, 1, 0)
-    btn.Position = position
+    btn.Size = UDim2.new(0, 0, 1, 0)
+    btn.AutomaticSize = Enum.AutomaticSize.X
+    btn.LayoutOrder = layoutOrder
     btn.BackgroundColor3 = THEME.Secondary
-    btn.Text = text
-    btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 13
+    btn.Text = "  " .. text .. "  "
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
     btn.TextColor3 = THEME.TextDim
     btn.Parent = SortFrame
 
@@ -249,55 +331,106 @@ local function createSortButton(text, position)
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = btn
 
-    return btn
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = THEME.Border
+    stroke.Thickness = 1
+    stroke.Parent = btn
+
+    return btn, stroke
 end
 
-local BtnPing = createSortButton("Menor Ping", UDim2.new(0, 0, 0, 0))
-local BtnLow = createSortButton("Menos Players", UDim2.new(0.34, 0, 0, 0))
-local BtnHigh = createSortButton("Mais Players", UDim2.new(0.68, 0, 0, 0))
+local BtnPing, StrokePing = createSortButton("MENOR PING", 1)
+local BtnLow, StrokeLow = createSortButton("MAIS VAZIOS", 2)
+local BtnHigh, StrokeHigh = createSortButton("MAIS JOGADORES", 3)
+local BtnFilter, StrokeFilter = createSortButton("FILTRO AVANÃ‡ADO", 4)
 
 local currentSort = "ping"
 
-local function setActive(btn)
-    for _, b in pairs({BtnPing, BtnLow, BtnHigh}) do
-        b.BackgroundColor3 = THEME.Secondary
-        b.TextColor3 = THEME.TextDim
+local sortButtons = {
+    {btn = BtnPing, stroke = StrokePing},
+    {btn = BtnLow, stroke = StrokeLow},
+    {btn = BtnHigh, stroke = StrokeHigh},
+}
+
+local function setActive(target)
+    for _, entry in pairs(sortButtons) do
+        entry.btn.BackgroundColor3 = THEME.Secondary
+        entry.btn.TextColor3 = THEME.TextDim
+        entry.stroke.Color = THEME.Border
     end
-    btn.BackgroundColor3 = THEME.Accent
-    btn.TextColor3 = Color3.fromRGB(20, 20, 20)
+    for _, entry in pairs(sortButtons) do
+        if entry.btn == target then
+            entry.btn.BackgroundColor3 = THEME.Accent
+            entry.btn.TextColor3 = Color3.fromRGB(20, 20, 20)
+            entry.stroke.Color = THEME.AccentHover
+        end
+    end
 end
 
 setActive(BtnPing)
+BtnFilter.BackgroundColor3 = THEME.Secondary
+BtnFilter.TextColor3 = THEME.Accent
+StrokeFilter.Color = THEME.Accent
+
+-- ===================== STATUS / PROGRESSO =====================
+
+local StatusRow = Instance.new("Frame")
+StatusRow.Size = UDim2.new(1, -24, 0, 20)
+StatusRow.Position = UDim2.new(0, 12, 0, 128)
+StatusRow.BackgroundTransparency = 1
+StatusRow.Parent = Main
 
 local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -100, 0, 22)
-StatusLabel.Position = UDim2.new(0, 12, 0, 96)
+StatusLabel.Size = UDim2.new(1, -100, 1, 0)
 StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Pronto"
+StatusLabel.Text = "servidores carregados 0"
 StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 12
 StatusLabel.TextColor3 = THEME.TextDim
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
-StatusLabel.Parent = Main
+StatusLabel.Parent = StatusRow
+
+local ProgressBack = Instance.new("Frame")
+ProgressBack.Size = UDim2.new(0, 90, 0, 6)
+ProgressBack.Position = UDim2.new(1, -190, 0.5, -3)
+ProgressBack.BackgroundColor3 = THEME.Secondary
+ProgressBack.BorderSizePixel = 0
+ProgressBack.Parent = StatusRow
+
+local ProgressBackCorner = Instance.new("UICorner")
+ProgressBackCorner.CornerRadius = UDim.new(1, 0)
+ProgressBackCorner.Parent = ProgressBack
+
+local ProgressFill = Instance.new("Frame")
+ProgressFill.Size = UDim2.new(0, 0, 1, 0)
+ProgressFill.BackgroundColor3 = THEME.Accent
+ProgressFill.BorderSizePixel = 0
+ProgressFill.Parent = ProgressBack
+
+local ProgressFillCorner = Instance.new("UICorner")
+ProgressFillCorner.CornerRadius = UDim.new(1, 0)
+ProgressFillCorner.Parent = ProgressFill
 
 local RefreshBtn = Instance.new("TextButton")
-RefreshBtn.Size = UDim2.new(0, 80, 0, 26)
-RefreshBtn.Position = UDim2.new(1, -92, 0, 94)
+RefreshBtn.Size = UDim2.new(0, 84, 0, 28)
+RefreshBtn.Position = UDim2.new(1, -84, 0, -4)
 RefreshBtn.BackgroundColor3 = THEME.Secondary
-RefreshBtn.Text = "Refresh"
+RefreshBtn.Text = "\226\134\187 Refresh" -- â†»
 RefreshBtn.Font = Enum.Font.GothamMedium
 RefreshBtn.TextSize = 12
 RefreshBtn.TextColor3 = THEME.Text
-RefreshBtn.Parent = Main
+RefreshBtn.Parent = StatusRow
 
 local RefreshCorner = Instance.new("UICorner")
-RefreshCorner.CornerRadius = UDim.new(0, 6)
+RefreshCorner.CornerRadius = UDim.new(0, 8)
 RefreshCorner.Parent = RefreshBtn
 
+-- ===================== LISTA DE SERVIDORES =====================
+
 local ListFrame = Instance.new("ScrollingFrame")
-ListFrame.Size = UDim2.new(1, -24, 1, -180)
-ListFrame.Position = UDim2.new(0, 12, 0, 128)
+ListFrame.Size = UDim2.new(1, -24, 1, -270)
+ListFrame.Position = UDim2.new(0, 12, 0, 156)
 ListFrame.BackgroundColor3 = THEME.Secondary
 ListFrame.BorderSizePixel = 0
 ListFrame.ScrollBarThickness = 4
@@ -306,7 +439,7 @@ ListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 ListFrame.Parent = Main
 
 local ListCorner = Instance.new("UICorner")
-ListCorner.CornerRadius = UDim.new(0, 8)
+ListCorner.CornerRadius = UDim.new(0, 10)
 ListCorner.Parent = ListFrame
 
 local ListLayout = Instance.new("UIListLayout")
@@ -321,19 +454,125 @@ ListPadding.PaddingLeft = UDim.new(0, 8)
 ListPadding.PaddingRight = UDim.new(0, 8)
 ListPadding.Parent = ListFrame
 
+-- ===================== RODAPÃ‰: AUTO HOP =====================
+
+local Footer = Instance.new("Frame")
+Footer.Size = UDim2.new(1, -24, 0, 96)
+Footer.Position = UDim2.new(0, 12, 1, -106)
+Footer.BackgroundColor3 = THEME.Secondary
+Footer.BorderSizePixel = 0
+Footer.Parent = Main
+
+local FooterCorner = Instance.new("UICorner")
+FooterCorner.CornerRadius = UDim.new(0, 10)
+FooterCorner.Parent = Footer
+
+local function createToggleSwitch(parent, position, defaultOn)
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(0, 44, 0, 24)
+    holder.Position = position
+    holder.BackgroundColor3 = defaultOn and THEME.Accent or THEME.Border
+    holder.Parent = parent
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = holder
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 18, 0, 18)
+    knob.Position = defaultOn and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.Parent = holder
+
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.Parent = holder
+
+    local state = defaultOn
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        holder.BackgroundColor3 = state and THEME.Accent or THEME.Border
+        knob.Position = state and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+    end)
+
+    return holder
+end
+
+local AutoHopLabel = Instance.new("TextLabel")
+AutoHopLabel.Size = UDim2.new(0, 100, 0, 20)
+AutoHopLabel.Position = UDim2.new(0, 12, 0, 8)
+AutoHopLabel.BackgroundTransparency = 1
+AutoHopLabel.Text = "AUTO HOP"
+AutoHopLabel.Font = Enum.Font.GothamBold
+AutoHopLabel.TextSize = 13
+AutoHopLabel.TextColor3 = THEME.Text
+AutoHopLabel.TextXAlignment = Enum.TextXAlignment.Left
+AutoHopLabel.Parent = Footer
+
+createToggleSwitch(Footer, UDim2.new(0, 120, 0, 8), true)
+
+local AutoModeBtnPing = Instance.new("TextButton")
+AutoModeBtnPing.Size = UDim2.new(0, 110, 0, 24)
+AutoModeBtnPing.Position = UDim2.new(1, -234, 0, 6)
+AutoModeBtnPing.BackgroundColor3 = THEME.Accent
+AutoModeBtnPing.Text = "MELHOR PING"
+AutoModeBtnPing.Font = Enum.Font.GothamBold
+AutoModeBtnPing.TextSize = 11
+AutoModeBtnPing.TextColor3 = Color3.fromRGB(20, 20, 20)
+AutoModeBtnPing.Parent = Footer
+
+local AutoModePingCorner = Instance.new("UICorner")
+AutoModePingCorner.CornerRadius = UDim.new(0, 8)
+AutoModePingCorner.Parent = AutoModeBtnPing
+
+local AutoModeBtnEmpty = Instance.new("TextButton")
+AutoModeBtnEmpty.Size = UDim2.new(0, 110, 0, 24)
+AutoModeBtnEmpty.Position = UDim2.new(1, -118, 0, 6)
+AutoModeBtnEmpty.BackgroundColor3 = THEME.Card
+AutoModeBtnEmpty.Text = "MAIS VAZIOS"
+AutoModeBtnEmpty.Font = Enum.Font.GothamBold
+AutoModeBtnEmpty.TextSize = 11
+AutoModeBtnEmpty.TextColor3 = THEME.TextDim
+AutoModeBtnEmpty.Parent = Footer
+
+local AutoModeEmptyCorner = Instance.new("UICorner")
+AutoModeEmptyCorner.CornerRadius = UDim.new(0, 8)
+AutoModeEmptyCorner.Parent = AutoModeBtnEmpty
+
+local ActiveModeLabel = Instance.new("TextLabel")
+ActiveModeLabel.Size = UDim2.new(0, 100, 0, 20)
+ActiveModeLabel.Position = UDim2.new(0, 12, 0, 40)
+ActiveModeLabel.BackgroundTransparency = 1
+ActiveModeLabel.Text = "MODO ATIVO"
+ActiveModeLabel.Font = Enum.Font.GothamBold
+ActiveModeLabel.TextSize = 13
+ActiveModeLabel.TextColor3 = THEME.Text
+ActiveModeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ActiveModeLabel.Parent = Footer
+
+createToggleSwitch(Footer, UDim2.new(0, 120, 0, 40), false)
+
 local AutoHopBtn = Instance.new("TextButton")
-AutoHopBtn.Size = UDim2.new(1, -24, 0, 36)
-AutoHopBtn.Position = UDim2.new(0, 12, 1, -48)
+AutoHopBtn.Size = UDim2.new(1, -24, 0, 34)
+AutoHopBtn.Position = UDim2.new(0, 12, 1, -42)
 AutoHopBtn.BackgroundColor3 = THEME.Accent
-AutoHopBtn.Text = "Auto Hop (Melhor Ping)"
+AutoHopBtn.Text = "\226\156\148  Auto Hop (Melhor Ping)" -- âœ”
 AutoHopBtn.Font = Enum.Font.GothamBold
 AutoHopBtn.TextSize = 14
 AutoHopBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
-AutoHopBtn.Parent = Main
+AutoHopBtn.Parent = Footer
 
 local AutoCorner = Instance.new("UICorner")
 AutoCorner.CornerRadius = UDim.new(0, 8)
 AutoCorner.Parent = AutoHopBtn
+
+-- ===================== LÃ“GICA DE SERVIDORES =====================
 
 local serversCache = {}
 local isLoading = false
@@ -355,291 +594,24 @@ end
 
 local function createServerEntry(index, server)
     local entry = Instance.new("Frame")
-    entry.Size = UDim2.new(1, 0, 0, 52)
-    entry.BackgroundColor3 = THEME.Background
+    entry.Size = UDim2.new(1, 0, 0, 74)
+    entry.BackgroundColor3 = THEME.Card
     entry.BorderSizePixel = 0
     entry.LayoutOrder = index
     entry.Parent = ListFrame
 
     local entryCorner = Instance.new("UICorner")
-    entryCorner.CornerRadius = UDim.new(0, 8)
+    entryCorner.CornerRadius = UDim.new(0, 10)
     entryCorner.Parent = entry
 
+    local entryStroke = Instance.new("UIStroke")
+    entryStroke.Color = THEME.Border
+    entryStroke.Thickness = 1
+    entryStroke.Parent = entry
+
+    -- nÃºmero da posiÃ§Ã£o
     local num = Instance.new("TextLabel")
-    num.Size = UDim2.new(0, 28, 1, 0)
+    num.Size = UDim2.new(0, 32, 1, 0)
     num.Position = UDim2.new(0, 8, 0, 0)
     num.BackgroundTransparency = 1
-    num.Text = tostring(index)
-    num.Font = Enum.Font.GothamBold
-    num.TextSize = 14
-    num.TextColor3 = THEME.TextDim
-    num.Parent = entry
-
-    local players = Instance.new("TextLabel")
-    players.Size = UDim2.new(0, 70, 0, 20)
-    players.Position = UDim2.new(0, 40, 0, 6)
-    players.BackgroundTransparency = 1
-    players.Text = server.playing .. "/" .. server.maxPlayers
-    players.Font = Enum.Font.GothamMedium
-    players.TextSize = 13
-    players.TextColor3 = THEME.Text
-    players.TextXAlignment = Enum.TextXAlignment.Left
-    players.Parent = entry
-
-    local ping = Instance.new("TextLabel")
-    ping.Size = UDim2.new(0, 80, 0, 20)
-    ping.Position = UDim2.new(0, 40, 0, 26)
-    ping.BackgroundTransparency = 1
-    ping.Text = "Ping: " .. (server.ping or "?")
-    ping.Font = Enum.Font.Gotham
-    ping.TextSize = 12
-    ping.TextColor3 = getPingColor(server.ping or 999)
-    ping.TextXAlignment = Enum.TextXAlignment.Left
-    ping.Parent = entry
-
-    local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(0, 120, 0, 40)
-    info.Position = UDim2.new(0, 140, 0, 6)
-    info.BackgroundTransparency = 1
-    info.Text = "FPS: " .. math.floor(server.fps or 0) .. "\nID: " .. string.sub(server.id, 1, 6)
-    info.Font = Enum.Font.Gotham
-    info.TextSize = 12
-    info.TextColor3 = THEME.TextDim
-    info.TextXAlignment = Enum.TextXAlignment.Left
-    info.TextYAlignment = Enum.TextYAlignment.Top
-    info.Parent = entry
-
-    local join = Instance.new("TextButton")
-    join.Size = UDim2.new(0, 70, 0, 32)
-    join.Position = UDim2.new(1, -82, 0.5, -16)
-    join.BackgroundColor3 = THEME.Accent
-    join.Text = "Join"
-    join.Font = Enum.Font.GothamBold
-    join.TextSize = 13
-    join.TextColor3 = Color3.fromRGB(20, 20, 20)
-    join.Parent = entry
-
-    local joinCorner = Instance.new("UICorner")
-    joinCorner.CornerRadius = UDim.new(0, 6)
-    joinCorner.Parent = join
-
-    join.MouseEnter:Connect(function()
-        join.BackgroundColor3 = THEME.AccentHover
-    end)
-    join.MouseLeave:Connect(function()
-        join.BackgroundColor3 = THEME.Accent
-    end)
-
-    join.MouseButton1Click:Connect(function()
-        StatusLabel.Text = "Teleportando..."
-        pcall(function()
-            TeleportService:TeleportToPlaceInstance(PlaceId, server.id, LocalPlayer)
-        end)
-    end)
-end
-
-local BASE_URLS = {
-    "https://games.roblox.com",
-    "https://games.roproxy.com",
-}
-
-local function tryHttpGet(url)
-    local ok, body = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if ok and type(body) == "string" then
-        return body
-    end
-    return nil, "HttpGet: " .. tostring(body)
-end
-
-local function tryRequest(url)
-    local req = (syn and syn.request) or (http and http.request) or http_request or request
-    if not req then
-        return nil, "sem request"
-    end
-    local ok, res = pcall(function()
-        return req({Url = url, Method = "GET"})
-    end)
-    if ok and type(res) == "table" then
-        if res.Body and (res.StatusCode == nil or res.StatusCode == 200) then
-            return res.Body
-        end
-        return nil, "request: HTTP " .. tostring(res.StatusCode)
-    end
-    return nil, "request falhou"
-end
-
-local function getJson(url)
-    local errors = {}
-    for _, method in ipairs({tryHttpGet, tryRequest}) do
-        local body, err = method(url)
-        if body then
-            local ok, data = pcall(function()
-                return HttpService:JSONDecode(body)
-            end)
-            if ok and type(data) == "table" and data.data then
-                return data
-            end
-            table.insert(errors, "resposta invalida")
-        else
-            table.insert(errors, err)
-        end
-    end
-    return nil, table.concat(errors, " | ")
-end
-
-local function fetchPage(cursor, sortOrder)
-    local allErrors = {}
-    for _, base in ipairs(BASE_URLS) do
-        local host = string.gsub(base, "https://", "")
-        local url = base .. "/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=" .. sortOrder .. "&limit=100"
-        if cursor ~= "" then
-            url = url .. "&cursor=" .. cursor
-        end
-
-        for attempt = 1, 2 do
-            local data, err = getJson(url)
-            if data then
-                return data
-            end
-            if attempt == 1 and string.find(err, "429") then
-                task.wait(2)
-            else
-                table.insert(allErrors, host .. ": " .. err)
-                break
-            end
-        end
-    end
-    return nil, table.concat(allErrors, " || ")
-end
-
-local function doFetch()
-    local cursor = ""
-    local loaded = 0
-    local order = (currentSort == "high") and "Desc" or "Asc"
-
-    while loaded < MAX_SERVERS do
-        local result, err = fetchPage(cursor, order)
-        if not result then
-            warn("[LightHop] " .. tostring(err))
-            StatusLabel.Text = "Erro: " .. string.sub(tostring(err), 1, 70)
-            return
-        end
-
-        for _, server in ipairs(result.data) do
-            if server.playing < server.maxPlayers and server.id ~= JobId then
-                table.insert(serversCache, {
-                    id = server.id,
-                    playing = server.playing or 0,
-                    maxPlayers = server.maxPlayers or 0,
-                    ping = server.ping or 999,
-                    fps = server.fps or 0
-                })
-                loaded = loaded + 1
-                if loaded >= MAX_SERVERS then break end
-            end
-        end
-
-        cursor = result.nextPageCursor
-        if type(cursor) ~= "string" or cursor == "" then break end
-        task.wait(REQUEST_DELAY)
-    end
-
-    if currentSort == "ping" then
-        table.sort(serversCache, function(a, b) return a.ping < b.ping end)
-    elseif currentSort == "low" then
-        table.sort(serversCache, function(a, b) return a.playing < b.playing end)
-    else
-        table.sort(serversCache, function(a, b) return a.playing > b.playing end)
-    end
-
-    for i, server in ipairs(serversCache) do
-        createServerEntry(i, server)
-    end
-
-    ListFrame.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 16)
-    StatusLabel.Text = "Carregados " .. #serversCache .. " servidores"
-end
-
-local function fetchServers()
-    if isLoading then return end
-    isLoading = true
-    StatusLabel.Text = "Carregando servidores..."
-    clearList()
-    serversCache = {}
-    local sortAtStart = currentSort
-
-    local ok, err = pcall(doFetch)
-    if not ok then
-        StatusLabel.Text = "Erro: " .. tostring(err)
-    end
-    isLoading = false
-
-    if currentSort ~= sortAtStart then
-        fetchServers()
-    end
-end
-
-BtnPing.MouseButton1Click:Connect(function()
-    currentSort = "ping"
-    setActive(BtnPing)
-    fetchServers()
-end)
-
-BtnLow.MouseButton1Click:Connect(function()
-    currentSort = "low"
-    setActive(BtnLow)
-    fetchServers()
-end)
-
-BtnHigh.MouseButton1Click:Connect(function()
-    currentSort = "high"
-    setActive(BtnHigh)
-    fetchServers()
-end)
-
-RefreshBtn.MouseButton1Click:Connect(fetchServers)
-
-AutoHopBtn.MouseButton1Click:Connect(function()
-    if #serversCache == 0 then
-        StatusLabel.Text = "Carregue os servidores primeiro"
-        return
-    end
-
-    local best = serversCache[1]
-    if currentSort ~= "ping" then
-        table.sort(serversCache, function(a, b) return a.ping < b.ping end)
-        best = serversCache[1]
-    end
-
-    StatusLabel.Text = "Auto Hop -> Ping " .. best.ping
-    pcall(function()
-        TeleportService:TeleportToPlaceInstance(PlaceId, best.id, LocalPlayer)
-    end)
-end)
-
-local dragging, dragStart, startPos
-
-TitleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-    end
-end)
-
-TitleBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-
-fetchServers()
+    num.Text = "#"
