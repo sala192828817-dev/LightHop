@@ -25,6 +25,12 @@ local JobId = game.JobId
 local MAX_SERVERS = 50
 local REQUEST_DELAY = 0.4
 
+-- FOTO DO BOTAO LH (opcional). Use UMA das duas opcoes:
+-- 1) ICON_ASSET_ID: id de imagem enviada ao Roblox, ex: "rbxassetid://123456789"
+-- 2) ICON_URL: link raw de uma imagem png/jpg no seu GitHub
+local ICON_ASSET_ID = ""
+local ICON_URL = "https://raw.githubusercontent.com/sala192828817-dev/LightHop/main/foto.png"
+
 local THEME = {
     Background = Color3.fromRGB(18, 18, 22),
     Secondary = Color3.fromRGB(28, 28, 34),
@@ -73,8 +79,12 @@ end)
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.new(0, 420, 0, 520)
-Main.Position = UDim2.new(0.5, -210, 0.5, -260)
+local cam = workspace.CurrentCamera
+local viewport = cam and cam.ViewportSize or Vector2.new(800, 600)
+local PANEL_W = math.min(420, viewport.X - 40)
+local PANEL_H = math.min(520, viewport.Y - 40)
+Main.Size = UDim2.new(0, PANEL_W, 0, PANEL_H)
+Main.Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
 Main.BackgroundColor3 = THEME.Background
 Main.BorderSizePixel = 0
 Main.ClipsDescendants = true
@@ -121,7 +131,7 @@ local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.new(0, 32, 0, 32)
 CloseBtn.Position = UDim2.new(1, -38, 0.5, -16)
 CloseBtn.BackgroundColor3 = Color3.fromRGB(55, 35, 35)
-CloseBtn.Text = "Ã—"
+CloseBtn.Text = "X"
 CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.TextSize = 20
 CloseBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
@@ -131,8 +141,91 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 8)
 CloseCorner.Parent = CloseBtn
 
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Name = "Toggle"
+ToggleBtn.Size = UDim2.new(0, 44, 0, 44)
+ToggleBtn.Position = UDim2.new(0, 12, 0.5, -22)
+ToggleBtn.BackgroundColor3 = THEME.Accent
+ToggleBtn.Text = "LH"
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.TextSize = 16
+ToggleBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
+ToggleBtn.Parent = ScreenGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 10)
+ToggleCorner.Parent = ToggleBtn
+
+local IconImage = Instance.new("ImageLabel")
+IconImage.Size = UDim2.new(1, 0, 1, 0)
+IconImage.BackgroundTransparency = 1
+IconImage.ScaleType = Enum.ScaleType.Crop
+IconImage.Active = false
+IconImage.Visible = false
+IconImage.Parent = ToggleBtn
+
+local IconCorner = Instance.new("UICorner")
+IconCorner.CornerRadius = UDim.new(0, 10)
+IconCorner.Parent = IconImage
+
+local function applyIcon(image)
+    IconImage.Image = image
+    IconImage.Visible = true
+    ToggleBtn.Text = ""
+end
+
+task.spawn(function()
+    if ICON_ASSET_ID ~= "" then
+        pcall(applyIcon, ICON_ASSET_ID)
+    elseif ICON_URL ~= "" then
+        pcall(function()
+            local data = game:HttpGet(ICON_URL)
+            writefile("LightHop_icon.png", data)
+            local getAsset = getcustomasset or getsynasset
+            applyIcon(getAsset("LightHop_icon.png"))
+        end)
+    end
+end)
+
+local toggleDragging = false
+local toggleMoved = false
+local toggleDragStart, toggleStartPos
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        toggleDragging = true
+        toggleMoved = false
+        toggleDragStart = input.Position
+        toggleStartPos = ToggleBtn.Position
+    end
+end)
+
+ToggleBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        toggleDragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if toggleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - toggleDragStart
+        if delta.Magnitude > 6 then
+            toggleMoved = true
+        end
+        if toggleMoved then
+            ToggleBtn.Position = UDim2.new(toggleStartPos.X.Scale, toggleStartPos.X.Offset + delta.X, toggleStartPos.Y.Scale, toggleStartPos.Y.Offset + delta.Y)
+        end
+    end
+end)
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    if not toggleMoved then
+        Main.Visible = not Main.Visible
+    end
+end)
+
 CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
+    Main.Visible = false
 end)
 
 local SortFrame = Instance.new("Frame")
@@ -185,6 +278,7 @@ StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 12
 StatusLabel.TextColor3 = THEME.TextDim
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 StatusLabel.Parent = Main
 
 local RefreshBtn = Instance.new("TextButton")
@@ -307,7 +401,7 @@ local function createServerEntry(index, server)
     info.Size = UDim2.new(0, 120, 0, 40)
     info.Position = UDim2.new(0, 140, 0, 6)
     info.BackgroundTransparency = 1
-    info.Text = "FPS: " .. math.floor(server.fps or 0) .. "\nRegiÃ£o: Unknown"
+    info.Text = "FPS: " .. math.floor(server.fps or 0) .. "\nID: " .. string.sub(server.id, 1, 6)
     info.Font = Enum.Font.Gotham
     info.TextSize = 12
     info.TextColor3 = THEME.TextDim
@@ -344,42 +438,92 @@ local function createServerEntry(index, server)
     end)
 end
 
-local function httpGet(url)
+local BASE_URLS = {
+    "https://games.roblox.com",
+    "https://games.roproxy.com",
+}
+
+local function tryHttpGet(url)
+    local ok, body = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if ok and type(body) == "string" then
+        return body
+    end
+    return nil, "HttpGet: " .. tostring(body)
+end
+
+local function tryRequest(url)
     local req = (syn and syn.request) or (http and http.request) or http_request or request
-    if req then
-        local ok, res = pcall(function()
-            return req({Url = url, Method = "GET"})
-        end)
-        if ok and res and res.Body then
+    if not req then
+        return nil, "sem request"
+    end
+    local ok, res = pcall(function()
+        return req({Url = url, Method = "GET"})
+    end)
+    if ok and type(res) == "table" then
+        if res.Body and (res.StatusCode == nil or res.StatusCode == 200) then
             return res.Body
         end
+        return nil, "request: HTTP " .. tostring(res.StatusCode)
     end
-    return game:HttpGet(url)
+    return nil, "request falhou"
 end
 
-local function fetchServers()
-    if isLoading then return end
-    isLoading = true
-    StatusLabel.Text = "Carregando servidores..."
-    clearList()
-    serversCache = {}
+local function getJson(url)
+    local errors = {}
+    for _, method in ipairs({tryHttpGet, tryRequest}) do
+        local body, err = method(url)
+        if body then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(body)
+            end)
+            if ok and type(data) == "table" and data.data then
+                return data
+            end
+            table.insert(errors, "resposta invalida")
+        else
+            table.insert(errors, err)
+        end
+    end
+    return nil, table.concat(errors, " | ")
+end
 
-    local cursor = ""
-    local loaded = 0
-
-    while loaded < MAX_SERVERS do
-        local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+local function fetchPage(cursor, sortOrder)
+    local allErrors = {}
+    for _, base in ipairs(BASE_URLS) do
+        local host = string.gsub(base, "https://", "")
+        local url = base .. "/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=" .. sortOrder .. "&limit=100"
         if cursor ~= "" then
             url = url .. "&cursor=" .. cursor
         end
 
-        local success, result = pcall(function()
-            return HttpService:JSONDecode(httpGet(url))
-        end)
+        for attempt = 1, 2 do
+            local data, err = getJson(url)
+            if data then
+                return data
+            end
+            if attempt == 1 and string.find(err, "429") then
+                task.wait(2)
+            else
+                table.insert(allErrors, host .. ": " .. err)
+                break
+            end
+        end
+    end
+    return nil, table.concat(allErrors, " || ")
+end
 
-        if not success or not result or not result.data then
-            StatusLabel.Text = "Erro ao carregar. Tente novamente."
-            isLoading = false
+local function doFetch()
+    local cursor = ""
+    local loaded = 0
+    local order = (currentSort == "high") and "Desc" or "Asc"
+
+    while loaded < MAX_SERVERS do
+        local result, err = fetchPage(cursor, order)
+        if not result then
+            warn("[LightHop] " .. tostring(err))
+            StatusLabel.Text = "Erro: " .. string.sub(tostring(err), 1, 70)
             return
         end
 
@@ -398,7 +542,7 @@ local function fetchServers()
         end
 
         cursor = result.nextPageCursor
-        if not cursor or cursor == "" then break end
+        if type(cursor) ~= "string" or cursor == "" then break end
         task.wait(REQUEST_DELAY)
     end
 
@@ -416,7 +560,25 @@ local function fetchServers()
 
     ListFrame.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 16)
     StatusLabel.Text = "Carregados " .. #serversCache .. " servidores"
+end
+
+local function fetchServers()
+    if isLoading then return end
+    isLoading = true
+    StatusLabel.Text = "Carregando servidores..."
+    clearList()
+    serversCache = {}
+    local sortAtStart = currentSort
+
+    local ok, err = pcall(doFetch)
+    if not ok then
+        StatusLabel.Text = "Erro: " .. tostring(err)
+    end
     isLoading = false
+
+    if currentSort ~= sortAtStart then
+        fetchServers()
+    end
 end
 
 BtnPing.MouseButton1Click:Connect(function()
@@ -451,654 +613,7 @@ AutoHopBtn.MouseButton1Click:Connect(function()
         best = serversCache[1]
     end
 
-    StatusLabel.Text = "Auto Hop â†’ Ping " .. best.ping
-    pcall(function()
-        TeleportService:TeleportToPlaceInstance(PlaceId, best.id, LocalPlayer)
-    end)
-end)
-
-local dragging, dragStart, startPos
-
-TitleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-    end
-end)
-
-TitleBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-
-fetchServers()    btn.TextSize = 13
-    btn.TextColor3 = THEME.TextDim
-    btn.Parent = SortFrame
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = btn
-
-    return btn
-end
-
-local BtnPing = createSortButton("Menor Ping", UDim2.new(0, 0, 0, 0))
-local BtnLow = createSortButton("Menos Players", UDim2.new(0.34, 0, 0, 0))
-local BtnHigh = createSortButton("Mais Players", UDim2.new(0.68, 0, 0, 0))
-
-local currentSort = "ping"
-
-local function setActive(btn)
-    for _, b in pairs({BtnPing, BtnLow, BtnHigh}) do
-        b.BackgroundColor3 = THEME.Secondary
-        b.TextColor3 = THEME.TextDim
-    end
-    btn.BackgroundColor3 = THEME.Accent
-    btn.TextColor3 = Color3.fromRGB(20, 20, 20)
-end
-
-setActive(BtnPing)
-
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -100, 0, 22)
-StatusLabel.Position = UDim2.new(0, 12, 0, 96)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Pronto"
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = 12
-StatusLabel.TextColor3 = THEME.TextDim
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.Parent = Main
-
-local RefreshBtn = Instance.new("TextButton")
-RefreshBtn.Size = UDim2.new(0, 80, 0, 26)
-RefreshBtn.Position = UDim2.new(1, -92, 0, 94)
-RefreshBtn.BackgroundColor3 = THEME.Secondary
-RefreshBtn.Text = "Refresh"
-RefreshBtn.Font = Enum.Font.GothamMedium
-RefreshBtn.TextSize = 12
-RefreshBtn.TextColor3 = THEME.Text
-RefreshBtn.Parent = Main
-
-local RefreshCorner = Instance.new("UICorner")
-RefreshCorner.CornerRadius = UDim.new(0, 6)
-RefreshCorner.Parent = RefreshBtn
-
-local ListFrame = Instance.new("ScrollingFrame")
-ListFrame.Size = UDim2.new(1, -24, 1, -180)
-ListFrame.Position = UDim2.new(0, 12, 0, 128)
-ListFrame.BackgroundColor3 = THEME.Secondary
-ListFrame.BorderSizePixel = 0
-ListFrame.ScrollBarThickness = 4
-ListFrame.ScrollBarImageColor3 = THEME.Accent
-ListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-ListFrame.Parent = Main
-
-local ListCorner = Instance.new("UICorner")
-ListCorner.CornerRadius = UDim.new(0, 8)
-ListCorner.Parent = ListFrame
-
-local ListLayout = Instance.new("UIListLayout")
-ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-ListLayout.Padding = UDim.new(0, 6)
-ListLayout.Parent = ListFrame
-
-local ListPadding = Instance.new("UIPadding")
-ListPadding.PaddingTop = UDim.new(0, 8)
-ListPadding.PaddingBottom = UDim.new(0, 8)
-ListPadding.PaddingLeft = UDim.new(0, 8)
-ListPadding.PaddingRight = UDim.new(0, 8)
-ListPadding.Parent = ListFrame
-
-local AutoHopBtn = Instance.new("TextButton")
-AutoHopBtn.Size = UDim2.new(1, -24, 0, 36)
-AutoHopBtn.Position = UDim2.new(0, 12, 1, -48)
-AutoHopBtn.BackgroundColor3 = THEME.Accent
-AutoHopBtn.Text = "Auto Hop (Melhor Ping)"
-AutoHopBtn.Font = Enum.Font.GothamBold
-AutoHopBtn.TextSize = 14
-AutoHopBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
-AutoHopBtn.Parent = Main
-
-local AutoCorner = Instance.new("UICorner")
-AutoCorner.CornerRadius = UDim.new(0, 8)
-AutoCorner.Parent = AutoHopBtn
-
-local serversCache = {}
-local isLoading = false
-
-local function getPingColor(ping)
-    if ping <= 80 then return THEME.GoodPing
-    elseif ping <= 140 then return THEME.MediumPing
-    else return THEME.BadPing
-    end
-end
-
-local function clearList()
-    for _, child in pairs(ListFrame:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
-        end
-    end
-end
-
-local function createServerEntry(index, server)
-    local entry = Instance.new("Frame")
-    entry.Size = UDim2.new(1, 0, 0, 52)
-    entry.BackgroundColor3 = THEME.Background
-    entry.BorderSizePixel = 0
-    entry.LayoutOrder = index
-    entry.Parent = ListFrame
-
-    local entryCorner = Instance.new("UICorner")
-    entryCorner.CornerRadius = UDim.new(0, 8)
-    entryCorner.Parent = entry
-
-    local num = Instance.new("TextLabel")
-    num.Size = UDim2.new(0, 28, 1, 0)
-    num.Position = UDim2.new(0, 8, 0, 0)
-    num.BackgroundTransparency = 1
-    num.Text = tostring(index)
-    num.Font = Enum.Font.GothamBold
-    num.TextSize = 14
-    num.TextColor3 = THEME.TextDim
-    num.Parent = entry
-
-    local players = Instance.new("TextLabel")
-    players.Size = UDim2.new(0, 70, 0, 20)
-    players.Position = UDim2.new(0, 40, 0, 6)
-    players.BackgroundTransparency = 1
-    players.Text = server.playing .. "/" .. server.maxPlayers
-    players.Font = Enum.Font.GothamMedium
-    players.TextSize = 13
-    players.TextColor3 = THEME.Text
-    players.TextXAlignment = Enum.TextXAlignment.Left
-    players.Parent = entry
-
-    local ping = Instance.new("TextLabel")
-    ping.Size = UDim2.new(0, 80, 0, 20)
-    ping.Position = UDim2.new(0, 40, 0, 26)
-    ping.BackgroundTransparency = 1
-    ping.Text = "Ping: " .. (server.ping or "?")
-    ping.Font = Enum.Font.Gotham
-    ping.TextSize = 12
-    ping.TextColor3 = getPingColor(server.ping or 999)
-    ping.TextXAlignment = Enum.TextXAlignment.Left
-    ping.Parent = entry
-
-    local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(0, 120, 0, 40)
-    info.Position = UDim2.new(0, 140, 0, 6)
-    info.BackgroundTransparency = 1
-    info.Text = "FPS: " .. math.floor(server.fps or 0) .. "\nRegiÃ£o: Unknown"
-    info.Font = Enum.Font.Gotham
-    info.TextSize = 12
-    info.TextColor3 = THEME.TextDim
-    info.TextXAlignment = Enum.TextXAlignment.Left
-    info.TextYAlignment = Enum.TextYAlignment.Top
-    info.Parent = entry
-
-    local join = Instance.new("TextButton")
-    join.Size = UDim2.new(0, 70, 0, 32)
-    join.Position = UDim2.new(1, -82, 0.5, -16)
-    join.BackgroundColor3 = THEME.Accent
-    join.Text = "Join"
-    join.Font = Enum.Font.GothamBold
-    join.TextSize = 13
-    join.TextColor3 = Color3.fromRGB(20, 20, 20)
-    join.Parent = entry
-
-    local joinCorner = Instance.new("UICorner")
-    joinCorner.CornerRadius = UDim.new(0, 6)
-    joinCorner.Parent = join
-
-    join.MouseEnter:Connect(function()
-        join.BackgroundColor3 = THEME.AccentHover
-    end)
-    join.MouseLeave:Connect(function()
-        join.BackgroundColor3 = THEME.Accent
-    end)
-
-    join.MouseButton1Click:Connect(function()
-        StatusLabel.Text = "Teleportando..."
-        pcall(function()
-            TeleportService:TeleportToPlaceInstance(PlaceId, server.id, LocalPlayer)
-        end)
-    end)
-end
-
-local function fetchServers()
-    if isLoading then return end
-    isLoading = true
-    StatusLabel.Text = "Carregando servidores..."
-    clearList()
-    serversCache = {}
-
-    local cursor = ""
-    local loaded = 0
-
-    while loaded < MAX_SERVERS do
-        local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-        if cursor ~= "" then
-            url = url .. "&cursor=" .. cursor
-        end
-
-        local success, result = pcall(function()
-            return HttpService:JSONDecode(game:HttpGet(url))
-        end)
-
-        if not success or not result or not result.data then
-            StatusLabel.Text = "Erro ao carregar. Tente novamente."
-            isLoading = false
-            return
-        end
-
-        for _, server in ipairs(result.data) do
-            if server.playing < server.maxPlayers and server.id ~= JobId then
-                table.insert(serversCache, {
-                    id = server.id,
-                    playing = server.playing or 0,
-                    maxPlayers = server.maxPlayers or 0,
-                    ping = server.ping or 999,
-                    fps = server.fps or 0
-                })
-                loaded = loaded + 1
-                if loaded >= MAX_SERVERS then break end
-            end
-        end
-
-        cursor = result.nextPageCursor
-        if not cursor or cursor == "" then break end
-        task.wait(REQUEST_DELAY)
-    end
-
-    if currentSort == "ping" then
-        table.sort(serversCache, function(a, b) return a.ping < b.ping end)
-    elseif currentSort == "low" then
-        table.sort(serversCache, function(a, b) return a.playing < b.playing end)
-    else
-        table.sort(serversCache, function(a, b) return a.playing > b.playing end)
-    end
-
-    for i, server in ipairs(serversCache) do
-        createServerEntry(i, server)
-    end
-
-    ListFrame.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 16)
-    StatusLabel.Text = "Carregados " .. #serversCache .. " servidores"
-    isLoading = false
-end
-
-BtnPing.MouseButton1Click:Connect(function()
-    currentSort = "ping"
-    setActive(BtnPing)
-    fetchServers()
-end)
-
-BtnLow.MouseButton1Click:Connect(function()
-    currentSort = "low"
-    setActive(BtnLow)
-    fetchServers()
-end)
-
-BtnHigh.MouseButton1Click:Connect(function()
-    currentSort = "high"
-    setActive(BtnHigh)
-    fetchServers()
-end)
-
-RefreshBtn.MouseButton1Click:Connect(fetchServers)
-
-AutoHopBtn.MouseButton1Click:Connect(function()
-    if #serversCache == 0 then
-        StatusLabel.Text = "Carregue os servidores primeiro"
-        return
-    end
-
-    local best = serversCache[1]
-    if currentSort ~= "ping" then
-        table.sort(serversCache, function(a, b) return a.ping < b.ping end)
-        best = serversCache[1]
-    end
-
-    StatusLabel.Text = "Auto Hop â†’ Ping " .. best.ping
-    pcall(function()
-        TeleportService:TeleportToPlaceInstance(PlaceId, best.id, LocalPlayer)
-    end)
-end)
-
-local dragging, dragStart, startPos
-
-TitleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-    end
-end)
-
-TitleBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-
-fetchServers()SortFrame.Parent = Main
-
-local function createSortButton(text, position)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.32, 0, 1, 0)
-    btn.Position = position
-    btn.BackgroundColor3 = THEME.Secondary
-    btn.Text = text
-    btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 13
-    btn.TextColor3 = THEME.TextDim
-    btn.Parent = SortFrame
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = btn
-
-    return btn
-end
-
-local BtnPing = createSortButton("Menor Ping", UDim2.new(0, 0, 0, 0))
-local BtnLow = createSortButton("Menos Players", UDim2.new(0.34, 0, 0, 0))
-local BtnHigh = createSortButton("Mais Players", UDim2.new(0.68, 0, 0, 0))
-
-local currentSort = "ping"
-
-local function setActive(btn)
-    for _, b in pairs({BtnPing, BtnLow, BtnHigh}) do
-        b.BackgroundColor3 = THEME.Secondary
-        b.TextColor3 = THEME.TextDim
-    end
-    btn.BackgroundColor3 = THEME.Accent
-    btn.TextColor3 = Color3.fromRGB(20, 20, 20)
-end
-
-setActive(BtnPing)
-
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -100, 0, 22)
-StatusLabel.Position = UDim2.new(0, 12, 0, 96)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Pronto"
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = 12
-StatusLabel.TextColor3 = THEME.TextDim
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.Parent = Main
-
-local RefreshBtn = Instance.new("TextButton")
-RefreshBtn.Size = UDim2.new(0, 80, 0, 26)
-RefreshBtn.Position = UDim2.new(1, -92, 0, 94)
-RefreshBtn.BackgroundColor3 = THEME.Secondary
-RefreshBtn.Text = "Refresh"
-RefreshBtn.Font = Enum.Font.GothamMedium
-RefreshBtn.TextSize = 12
-RefreshBtn.TextColor3 = THEME.Text
-RefreshBtn.Parent = Main
-
-local RefreshCorner = Instance.new("UICorner")
-RefreshCorner.CornerRadius = UDim.new(0, 6)
-RefreshCorner.Parent = RefreshBtn
-
-local ListFrame = Instance.new("ScrollingFrame")
-ListFrame.Size = UDim2.new(1, -24, 1, -180)
-ListFrame.Position = UDim2.new(0, 12, 0, 128)
-ListFrame.BackgroundColor3 = THEME.Secondary
-ListFrame.BorderSizePixel = 0
-ListFrame.ScrollBarThickness = 4
-ListFrame.ScrollBarImageColor3 = THEME.Accent
-ListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-ListFrame.Parent = Main
-
-local ListCorner = Instance.new("UICorner")
-ListCorner.CornerRadius = UDim.new(0, 8)
-ListCorner.Parent = ListFrame
-
-local ListLayout = Instance.new("UIListLayout")
-ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-ListLayout.Padding = UDim.new(0, 6)
-ListLayout.Parent = ListFrame
-
-local ListPadding = Instance.new("UIPadding")
-ListPadding.PaddingTop = UDim.new(0, 8)
-ListPadding.PaddingBottom = UDim.new(0, 8)
-ListPadding.PaddingLeft = UDim.new(0, 8)
-ListPadding.PaddingRight = UDim.new(0, 8)
-ListPadding.Parent = ListFrame
-
-local AutoHopBtn = Instance.new("TextButton")
-AutoHopBtn.Size = UDim2.new(1, -24, 0, 36)
-AutoHopBtn.Position = UDim2.new(0, 12, 1, -48)
-AutoHopBtn.BackgroundColor3 = THEME.Accent
-AutoHopBtn.Text = "Auto Hop (Melhor Ping)"
-AutoHopBtn.Font = Enum.Font.GothamBold
-AutoHopBtn.TextSize = 14
-AutoHopBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
-AutoHopBtn.Parent = Main
-
-local AutoCorner = Instance.new("UICorner")
-AutoCorner.CornerRadius = UDim.new(0, 8)
-AutoCorner.Parent = AutoHopBtn
-
-local serversCache = {}
-local isLoading = false
-
-local function getPingColor(ping)
-    if ping <= 80 then return THEME.GoodPing
-    elseif ping <= 140 then return THEME.MediumPing
-    else return THEME.BadPing
-    end
-end
-
-local function clearList()
-    for _, child in pairs(ListFrame:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
-        end
-    end
-end
-
-local function createServerEntry(index, server)
-    local entry = Instance.new("Frame")
-    entry.Size = UDim2.new(1, 0, 0, 52)
-    entry.BackgroundColor3 = THEME.Background
-    entry.BorderSizePixel = 0
-    entry.LayoutOrder = index
-    entry.Parent = ListFrame
-
-    local entryCorner = Instance.new("UICorner")
-    entryCorner.CornerRadius = UDim.new(0, 8)
-    entryCorner.Parent = entry
-
-    local num = Instance.new("TextLabel")
-    num.Size = UDim2.new(0, 28, 1, 0)
-    num.Position = UDim2.new(0, 8, 0, 0)
-    num.BackgroundTransparency = 1
-    num.Text = tostring(index)
-    num.Font = Enum.Font.GothamBold
-    num.TextSize = 14
-    num.TextColor3 = THEME.TextDim
-    num.Parent = entry
-
-    local players = Instance.new("TextLabel")
-    players.Size = UDim2.new(0, 70, 0, 20)
-    players.Position = UDim2.new(0, 40, 0, 6)
-    players.BackgroundTransparency = 1
-    players.Text = server.playing .. "/" .. server.maxPlayers
-    players.Font = Enum.Font.GothamMedium
-    players.TextSize = 13
-    players.TextColor3 = THEME.Text
-    players.TextXAlignment = Enum.TextXAlignment.Left
-    players.Parent = entry
-
-    local ping = Instance.new("TextLabel")
-    ping.Size = UDim2.new(0, 80, 0, 20)
-    ping.Position = UDim2.new(0, 40, 0, 26)
-    ping.BackgroundTransparency = 1
-    ping.Text = "Ping: " .. (server.ping or "?")
-    ping.Font = Enum.Font.Gotham
-    ping.TextSize = 12
-    ping.TextColor3 = getPingColor(server.ping or 999)
-    ping.TextXAlignment = Enum.TextXAlignment.Left
-    ping.Parent = entry
-
-    local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(0, 120, 0, 40)
-    info.Position = UDim2.new(0, 140, 0, 6)
-    info.BackgroundTransparency = 1
-    info.Text = "FPS: " .. math.floor(server.fps or 0) .. "\nRegião: Unknown"
-    info.Font = Enum.Font.Gotham
-    info.TextSize = 12
-    info.TextColor3 = THEME.TextDim
-    info.TextXAlignment = Enum.TextXAlignment.Left
-    info.TextYAlignment = Enum.TextYAlignment.Top
-    info.Parent = entry
-
-    local join = Instance.new("TextButton")
-    join.Size = UDim2.new(0, 70, 0, 32)
-    join.Position = UDim2.new(1, -82, 0.5, -16)
-    join.BackgroundColor3 = THEME.Accent
-    join.Text = "Join"
-    join.Font = Enum.Font.GothamBold
-    join.TextSize = 13
-    join.TextColor3 = Color3.fromRGB(20, 20, 20)
-    join.Parent = entry
-
-    local joinCorner = Instance.new("UICorner")
-    joinCorner.CornerRadius = UDim.new(0, 6)
-    joinCorner.Parent = join
-
-    join.MouseEnter:Connect(function()
-        join.BackgroundColor3 = THEME.AccentHover
-    end)
-    join.MouseLeave:Connect(function()
-        join.BackgroundColor3 = THEME.Accent
-    end)
-
-    join.MouseButton1Click:Connect(function()
-        StatusLabel.Text = "Teleportando..."
-        pcall(function()
-            TeleportService:TeleportToPlaceInstance(PlaceId, server.id, LocalPlayer)
-        end)
-    end)
-end
-
-local function fetchServers()
-    if isLoading then return end
-    isLoading = true
-    StatusLabel.Text = "Carregando servidores..."
-    clearList()
-    serversCache = {}
-
-    local cursor = ""
-    local loaded = 0
-
-    while loaded < MAX_SERVERS do
-        local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-        if cursor \~= "" then
-            url = url .. "&cursor=" .. cursor
-        end
-
-        local success, result = pcall(function()
-            return HttpService:JSONDecode(game:HttpGet(url))
-        end)
-
-        if not success or not result or not result.data then
-            StatusLabel.Text = "Erro ao carregar. Tente novamente."
-            isLoading = false
-            return
-        end
-
-        for _, server in ipairs(result.data) do
-            if server.playing < server.maxPlayers and server.id \~= JobId then
-                table.insert(serversCache, {
-                    id = server.id,
-                    playing = server.playing or 0,
-                    maxPlayers = server.maxPlayers or 0,
-                    ping = server.ping or 999,
-                    fps = server.fps or 0
-                })
-                loaded = loaded + 1
-                if loaded >= MAX_SERVERS then break end
-            end
-        end
-
-        cursor = result.nextPageCursor
-        if not cursor or cursor == "" then break end
-        task.wait(REQUEST_DELAY)
-    end
-
-    if currentSort == "ping" then
-        table.sort(serversCache, function(a, b) return a.ping < b.ping end)
-    elseif currentSort == "low" then
-        table.sort(serversCache, function(a, b) return a.playing < b.playing end)
-    else
-        table.sort(serversCache, function(a, b) return a.playing > b.playing end)
-    end
-
-    for i, server in ipairs(serversCache) do
-        createServerEntry(i, server)
-    end
-
-    ListFrame.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 16)
-    StatusLabel.Text = "Carregados " .. #serversCache .. " servidores"
-    isLoading = false
-end
-
-BtnPing.MouseButton1Click:Connect(function()
-    currentSort = "ping"
-    setActive(BtnPing)
-    fetchServers()
-end)
-
-BtnLow.MouseButton1Click:Connect(function()
-    currentSort = "low"
-    setActive(BtnLow)
-    fetchServers()
-end)
-
-BtnHigh.MouseButton1Click:Connect(function()
-    currentSort = "high"
-    setActive(BtnHigh)
-    fetchServers()
-end)
-
-RefreshBtn.MouseButton1Click:Connect(fetchServers)
-
-AutoHopBtn.MouseButton1Click:Connect(function()
-    if #serversCache == 0 then
-        StatusLabel.Text = "Carregue os servidores primeiro"
-        return
-    end
-
-    local best = serversCache[1]
-    if currentSort \~= "ping" then
-        table.sort(serversCache, function(a, b) return a.ping < b.ping end)
-        best = serversCache[1]
-    end
-
-    StatusLabel.Text = "Auto Hop → Ping " .. best.ping
+    StatusLabel.Text = "Auto Hop -> Ping " .. best.ping
     pcall(function()
         TeleportService:TeleportToPlaceInstance(PlaceId, best.id, LocalPlayer)
     end)
